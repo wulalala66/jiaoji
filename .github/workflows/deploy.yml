@@ -74,8 +74,8 @@ jobs:
         run: |
           set -e
           printf 'jiaoji-build %s\n' "$(cat signing-key.pub)" > ~/.ssh/allowed_signers
-          ssh-keygen -Y verify -f ~/.ssh/allowed_signers -n jiaoji -i jiaoji-dist.tar.gz -s jiaoji-dist.tar.gz.sig
-          ssh-keygen -Y verify -f ~/.ssh/allowed_signers -n jiaoji -i jiaoji-dist.zip -s jiaoji-dist.zip.sig
+          ssh-keygen -Y verify -f ~/.ssh/allowed_signers -I jiaoji-build -n jiaoji -s jiaoji-dist.tar.gz.sig < jiaoji-dist.tar.gz
+          ssh-keygen -Y verify -f ~/.ssh/allowed_signers -I jiaoji-build -n jiaoji -s jiaoji-dist.zip.sig < jiaoji-dist.zip
           echo "SIGNATURES OK"
 
       - name: Bump tag (auto increment)
