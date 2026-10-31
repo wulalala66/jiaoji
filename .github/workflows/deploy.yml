@@ -120,6 +120,27 @@ jobs:
         run: |
           gradle -p android :app:testDebugUnitTest --no-daemon --stacktrace
 
+      - name: Test summary
+        if: always()
+        run: |
+          shopt -s nullglob
+          files=(android/app/build/test-results/testDebugUnitTest/*.xml)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::warning::没有找到测试报告，测试可能未执行"
+            exit 0
+          fi
+          for f in "${files[@]}"; do
+            grep -o 'tests="[0-9]*" skipped="[0-9]*" failures="[0-9]*" errors="[0-9]*"' "$f" | head -1
+          done
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: android/app/build/reports/tests/testDebugUnitTest
+          if-no-files-found: ignore
+
       - name: Assemble release APK
         run: |
           gradle -p android :app:assembleRelease --no-daemon --stacktrace \
