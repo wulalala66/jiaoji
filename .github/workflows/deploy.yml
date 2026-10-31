@@ -73,15 +73,9 @@ jobs:
       - name: Verify signatures with committed public key
         run: |
           set -e
-          mkdir -p ~/.ssh
-          cp signing-key.pub ~/.ssh/allowed_signers
-          sed -i 's/^/jiaoji-build /' ~/.ssh/allowed_signers
-          echo 'jiaoji-build signing-key.pub' > /dev/null
-          cat signing-key.pub >> /dev/null
-          # rebuild allowed_signers properly
           printf 'jiaoji-build %s\n' "$(cat signing-key.pub)" > ~/.ssh/allowed_signers
-          ssh-keygen -Y verify -f ~/.ssh/allowed_signers -n jiaoji -s jiaoji-dist.tar.gz.sig -i jiaoji-dist.tar.gz
-          ssh-keygen -Y verify -f ~/.ssh/allowed_signers -n jiaoji -s jiaoji-dist.zip.sig -i jiaoji-dist.zip
+          ssh-keygen -Y verify -f ~/.ssh/allowed_signers -n jiaoji -i jiaoji-dist.tar.gz -s jiaoji-dist.tar.gz.sig
+          ssh-keygen -Y verify -f ~/.ssh/allowed_signers -n jiaoji -i jiaoji-dist.zip -s jiaoji-dist.zip.sig
           echo "SIGNATURES OK"
 
       - name: Bump tag (auto increment)
