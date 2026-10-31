@@ -185,10 +185,14 @@ jobs:
           set -e
           LAST=$(git tag --list 'v*' --sort=-v:refname | head -1)
           VERSION=$(node -p "require('./package.json').version")
-          if [ -z "$LAST" ]; then NEW_TAG="v${VERSION}"; else
+          if [ -z "$LAST" ]; then
+            NEW_TAG="v${VERSION}"
+          else
             CORE=${LAST#v}
             MAJOR=${CORE%%.*}; REST=${CORE#*.}; MINOR=${REST%%.*}; PATCH=${REST#*.}
-            NEW_TAG="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+            NEXT_PATCH="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+            # 取 package.json 版本与「上个 tag 补丁号 +1」的较大者，便于手动跨大版本
+            NEW_TAG="v$(printf '%s\n%s\n' "$VERSION" "${NEXT_PATCH#v}" | sort -V | tail -1)"
           fi
           if git ls-remote --tags origin "refs/tags/${NEW_TAG}" | grep -q "$NEW_TAG"; then
             echo "skipped=true" >> "$GITHUB_OUTPUT"; echo "Tag ${NEW_TAG} exists, skip release"; exit 0
