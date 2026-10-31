@@ -35,6 +35,7 @@
 - 本地只做开发（`npm run dev` 起静态服务看网页版；App 在 Android Studio 里跑），**构建与发布全部在 GitHub Actions**：push 到 main 即
   1. `web`：Vite 构建 → 打包 dist → ed25519 固定密钥签名 → 部署 GitHub Pages；
   2. `android`：Gradle 8.10.2 + AGP 8.7.2 构建 release APK → 用固定 keystore 通过 `apksigner` 签名并自验；
+     构建前先跑 **Robolectric 冒烟测试**（在 JVM 上真实组合每一屏，12 个用例），挡住「一打开就崩」这类问题；
   3. `release`：递增 tag（v1.0.0 → v1.0.1 …）→ 创建 Release，附 APK、网页产物、签名、SHA256SUMS。
 
 ### 验证 Release
