@@ -1,0 +1,135 @@
+name: Build, Release & Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.new }}
+      version: ${{ steps.tag.outputs.version }}
+      skipped: ${{ steps.tag.outputs.skipped }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (Vite)
+        run: npm run build
+
+      - name: Prepare artifacts
+        run: |
+          cd dist
+          tar czf ../jiaoji-dist.tar.gz .
+          zip -qr ../jiaoji-dist.zip .
+          cd ..
+          sha256sum jiaoji-dist.tar.gz jiaoji-dist.zip > SHA256SUMS.txt
+
+      - name: Sign artifacts (fixed ed25519 key)
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        run: |
+          set -e
+          [ -n "$SIGNING_KEY" ] || { echo "::error::Secret SIGNING_KEY (ed25519 私钥) 未配置"; exit 1; }
+          # SSH-format ed25519 private key (openssh), imported from secret
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SIGNING_KEY" > ~/.ssh/signing_key
+          chmod 600 ~/.ssh/signing_key
+          # Accept both raw openssh key and PEM; convert PEM ed25519 if needed
+          if head -1 ~/.ssh/signing_key | grep -q "BEGIN OPENSSH PRIVATE KEY"; then
+            :
+          elif head -1 ~/.ssh/signing_key | grep -q "BEGIN PRIVATE KEY"; then
+            openssl pkey -in ~/.ssh/signing_key -out ~/.ssh/signing_key_ssh 2>/dev/null && mv ~/.ssh/signing_key_ssh ~/.ssh/signing_key
+          fi
+          export SSH_KEYGEN="ssh-keygen"
+          ssh-keygen -y -f ~/.ssh/signing_key > /tmp/pub_from_priv.key
+          ssh-keygen -Y sign -f ~/.ssh/signing_key -n jiaoji jiaoji-dist.tar.gz jiaoji-dist.zip
+          # ssh-keygen -Y sign writes <file>.sig
+          echo "Public key for verification (add to ~/.ssh/allowed_signers):"
+          cat /tmp/pub_from_priv.key
+          echo '--- fingerprint ---'
+          ssh-keygen -lf /tmp/pub_from_priv.key
+
+      - name: Verify signatures with committed public key
+        run: |
+          set -e
+          mkdir -p ~/.ssh
+          cp signing-key.pub ~/.ssh/allowed_signers
+          sed -i 's/^/jiaoji-build /' ~/.ssh/allowed_signers
+          echo 'jiaoji-build signing-key.pub' > /dev/null
+          cat signing-key.pub >> /dev/null
+          # rebuild allowed_signers properly
+          printf 'jiaoji-build %s\n' "$(cat signing-key.pub)" > ~/.ssh/allowed_signers
+          ssh-keygen -Y verify -f ~/.ssh/allowed_signers -n jiaoji -s jiaoji-dist.tar.gz.sig -i jiaoji-dist.tar.gz
+          ssh-keygen -Y verify -f ~/.ssh/allowed_signers -n jiaoji -s jiaoji-dist.zip.sig -i jiaoji-dist.zip
+          echo "SIGNATURES OK"
+
+      - name: Bump tag (auto increment)
+        id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          LAST=$(git tag --list 'v*' --sort=-v:refname | head -1)
+          VERSION=$(node -p "require('./package.json').version")
+          if [ -z "$LAST" ]; then NEW_TAG="v${VERSION}"; else
+            CORE=${LAST#v}
+            MAJOR=${CORE%%.*}; REST=${CORE#*.}; MINOR=${REST%%.*}; PATCH=${REST#*.}
+            NEW_TAG="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+          if git ls-remote --tags origin "refs/tags/${NEW_TAG}" | grep -q "$NEW_TAG"; then
+            echo "skipped=true" >> "$GITHUB_OUTPUT"; echo "Tag ${NEW_TAG} exists, skip release"; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$NEW_TAG" -m "Release ${NEW_TAG}"
+          git push origin "$NEW_TAG"
+          echo "new=${NEW_TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${NEW_TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Release
+        if: steps.tag.outputs.skipped != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.tag.outputs.new }}" \
+            jiaoji-dist.tar.gz jiaoji-dist.zip \
+            jiaoji-dist.tar.gz.sig jiaoji-dist.zip.sig \
+            SHA256SUMS.txt signing-key.pub \
+            --title "${{ steps.tag.outputs.new }}" \
+            --notes "自动构建于 ${{ github.sha }} 。附件含 dist 产物（tar.gz/zip）、ed25519 签名（.sig）与校验和。验证：下载 signing-key.pub 与产物后执行 ssh-keygen -Y verify -f allowed_signers -n jiaoji -s *.sig -i <产物>"
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy-pages:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
