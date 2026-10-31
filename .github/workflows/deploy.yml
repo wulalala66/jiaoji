@@ -117,22 +117,35 @@ jobs:
           ls -l "$RUNNER_TEMP/jiaoji.p12"
 
       - name: Assemble release APK
-        env:
-          KEYSTORE_PATH: ${{ runner.temp }}/jiaoji.p12
-          KS_PASS: ${{ secrets.KS_PASS }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         run: |
           gradle -p android :app:assembleRelease --no-daemon --stacktrace \
             -PverCode=${{ steps.ver.outputs.code }} \
             -PverName=${{ steps.ver.outputs.name }}
 
+      - name: Sign APK (apksigner, fixed keystore)
+        env:
+          KS_PASS: ${{ secrets.KS_PASS }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          set -e
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "build-tools: $BT"
+          UNSIGNED=$(find android/app/build/outputs/apk/release -name '*-unsigned.apk' | head -1)
+          [ -n "$UNSIGNED" ] || UNSIGNED=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
+          echo "unsigned: $UNSIGNED"
+          "$BT/zipalign" -f -p 4 "$UNSIGNED" /tmp/aligned.apk
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/jiaoji.p12" \
+            --ks-pass "pass:$KS_PASS" --ks-key-alias "$KEY_ALIAS" \
+            --out /tmp/jiaoji-signed.apk /tmp/aligned.apk
+          "$BT/apksigner" verify --print-certs /tmp/jiaoji-signed.apk
+
       - name: Collect APK
         run: |
           set -e
           mkdir -p out
-          find android/app/build/outputs/apk -name "*.apk" -print
-          cp android/app/build/outputs/apk/release/app-release.apk "out/jiaoji-${{ steps.ver.outputs.name }}-${{ steps.ver.outputs.code }}.apk"
+          cp /tmp/jiaoji-signed.apk "out/jiaoji-${{ steps.ver.outputs.name }}-${{ steps.ver.outputs.code }}.apk"
           ls -lh out/
+          du -h out/*.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

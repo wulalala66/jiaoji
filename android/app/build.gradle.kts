@@ -7,10 +7,6 @@ plugins {
 val appVerCode = (project.findProperty("verCode") as String?)?.toIntOrNull() ?: 1
 val appVerName = (project.findProperty("verName") as String?) ?: "2.0.0"
 
-val ksFile = System.getenv("KEYSTORE_PATH")
-val ksPass = System.getenv("KS_PASS") ?: ""
-val ksAlias = System.getenv("KEY_ALIAS") ?: "jiaoji"
-
 android {
     namespace = "com.wulalala66.jiaoji"
     compileSdk = 35
@@ -23,16 +19,8 @@ android {
         versionName = appVerName
     }
 
-    signingConfigs {
-        create("release") {
-            if (!ksFile.isNullOrBlank() && File(ksFile).exists()) {
-                storeFile = File(ksFile)
-                setStorePassword(ksPass)
-                keyAlias = ksAlias
-                setKeyPassword(ksPass)
-            }
-        }
-    }
+    // 正式包由 CI 用 apksigner 签名（固定 keystore，见 .github/workflows/deploy.yml），
+    // 这样私钥不需要经过 Gradle 配置，本地 assembleRelease 产出未签名包。
 
     buildTypes {
         release {
@@ -42,8 +30,6 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            val cfg = signingConfigs.getByName("release")
-            if (cfg.storeFile != null) signingConfig = cfg
         }
         debug {
             applicationIdSuffix = ".debug"
