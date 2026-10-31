@@ -226,7 +226,7 @@ fun SettingsScreen(state: AppState, onOpenType: (String?) -> Unit) {
                                 Share.json(
                                     ctx,
                                     "jiaoji-backup-${Fmt.md(System.currentTimeMillis())}.json",
-                                    state.exportJson(),
+                                    Repo.I.exportJson(),
                                 )
                             }
                             .padding(vertical = 11.dp),

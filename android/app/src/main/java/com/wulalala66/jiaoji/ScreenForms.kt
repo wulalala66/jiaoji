@@ -650,7 +650,7 @@ fun TypeEditorScreen(state: AppState, typeId: String?, onBack: () -> Unit) {
             confirmButton = {
                 TextButton(onClick = {
                     if (n.isNotBlank()) {
-                        tests = tests + TestDef("t_" + Repo.uid(), n.trim(), u.trim(), mn.trim(), mx.trim())
+                        tests = (tests + TestDef("t_" + Repo.uid(), n.trim(), u.trim(), mn.trim(), mx.trim())).toMutableList()
                     }
                     newTest = false
                 }, enabled = n.isNotBlank()) { Text("添加") }
