@@ -116,6 +116,10 @@ jobs:
           printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/jiaoji.p12"
           ls -l "$RUNNER_TEMP/jiaoji.p12"
 
+      - name: Unit tests (Robolectric smoke)
+        run: |
+          gradle -p android :app:testDebugUnitTest --no-daemon --stacktrace
+
       - name: Assemble release APK
         run: |
           gradle -p android :app:assembleRelease --no-daemon --stacktrace \
