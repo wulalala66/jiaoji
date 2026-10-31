@@ -1,6 +1,6 @@
 package com.wulalala66.jiaoji
 
-import android.app.AlarmClock
+import android.provider.AlarmClock
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
@@ -134,8 +134,9 @@ fun OvensScreen(
                                 color = Ink3,
                             )
                         }
-                        if (b.sampleId != null) {
-                            SmallButton("看样品") { onOpenSample(b.sampleId) }
+                        val sid = b.sampleId
+                        if (sid != null) {
+                            SmallButton("看样品") { onOpenSample(sid) }
                         }
                     }
                 }
@@ -221,8 +222,9 @@ private fun TimerCard(
                 color = Ink2,
                 modifier = Modifier.weight(1f),
             )
-            if (b.sampleId != null) {
-                SmallButton("看样品") { onOpenSample(b.sampleId) }
+            val sid = b.sampleId
+            if (sid != null) {
+                SmallButton("看样品") { onOpenSample(sid) }
                 Spacer(Modifier.width(6.dp))
             }
             SmallButton("删除") { onRemove() }

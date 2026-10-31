@@ -467,8 +467,8 @@ fun BakeFormScreen(
 fun TypeEditorScreen(state: AppState, typeId: String?, onBack: () -> Unit) {
     val existing = typeId?.let { id -> state.types.firstOrNull { it.id == id } }
     var name by remember { mutableStateOf(existing?.name ?: "") }
-    var bakes by remember { mutableStateOf(existing?.bakes ?: emptyList()) }
-    var tests by remember { mutableStateOf(existing?.tests ?: emptyList()) }
+    var bakes by remember { mutableStateOf((existing?.bakes ?: emptyList()).toMutableList()) }
+    var tests by remember { mutableStateOf((existing?.tests ?: emptyList()).toMutableList()) }
     var newBake by remember { mutableStateOf(false) }
     var newTest by remember { mutableStateOf(false) }
 
@@ -501,7 +501,7 @@ fun TypeEditorScreen(state: AppState, typeId: String?, onBack: () -> Unit) {
                         color = Ink,
                         modifier = Modifier.weight(1f),
                     )
-                    IconAction(Icons.Filled.Close, Ink3, "删除") { bakes = bakes.filterIndexed { j, _ -> j != i } }
+                    IconAction(Icons.Filled.Close, Ink3, "删除") { bakes = bakes.filterIndexed { j, _ -> j != i }.toMutableList() }
                 }
             }
         }
@@ -529,7 +529,7 @@ fun TypeEditorScreen(state: AppState, typeId: String?, onBack: () -> Unit) {
                             )
                         }
                     }
-                    IconAction(Icons.Filled.Close, Ink3, "删除") { tests = tests.filterIndexed { j, _ -> j != i } }
+                    IconAction(Icons.Filled.Close, Ink3, "删除") { tests = tests.filterIndexed { j, _ -> j != i }.toMutableList() }
                 }
             }
         }
@@ -545,8 +545,8 @@ fun TypeEditorScreen(state: AppState, typeId: String?, onBack: () -> Unit) {
                         ProductType(
                             id = existing?.id ?: ("t_" + Repo.uid()),
                             name = name.trim(),
-                            bakes = bakes,
-                            tests = tests,
+                            bakes = bakes.toMutableList(),
+                            tests = tests.toMutableList(),
                         )
                     )
                     onBack()
@@ -589,7 +589,7 @@ fun TypeEditorScreen(state: AppState, typeId: String?, onBack: () -> Unit) {
                 TextButton(onClick = {
                     val ti = t.toIntOrNull()
                     val mi = m.toIntOrNull()
-                    if (ti != null && mi != null) bakes = bakes + BakePreset(ti, mi)
+                    if (ti != null && mi != null) bakes = (bakes + BakePreset(ti, mi)).toMutableList()
                     newBake = false
                 }) { Text("添加") }
             },
@@ -688,7 +688,7 @@ fun SampledDialog(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    "批次号 ${state.previewBatchNo(task.typeId)}",
+                    "批次号 ${Repo.I.previewBatchNo(task.typeId)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = Ink3,
                 )

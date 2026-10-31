@@ -148,8 +148,8 @@ fun EmptyHint(emoji: String, title: String, sub: String, modifier: Modifier = Mo
 fun ChoiceChip(
     text: String,
     selected: Boolean,
-    onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    onClick: () -> Unit,
 ) {
     Box(
         modifier = modifier

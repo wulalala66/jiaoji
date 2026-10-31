@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -257,7 +258,7 @@ private fun BottomBar(current: Screen, onSelect: (Screen) -> Unit, onAdd: () -> 
 }
 
 @Composable
-private fun TabItem(label: String, icon: ImageVector, active: Boolean, onClick: () -> Unit) {
+private fun RowScope.TabItem(label: String, icon: ImageVector, active: Boolean, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .weight(1f)
