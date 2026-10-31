@@ -4,6 +4,36 @@
 import { getState, getSample, getType } from "./store.js";
 import { esc, hmsClock, hm, pad, fmtNum, fmtRange } from "./utils.js";
 import { icon } from "./ui.js";
+import { nativeAvailable, systemTimer } from "./native.js";
+
+/** wire up the buttons inside bake timer cards (works on any page) */
+export function bindBakeCardActions(root, { onChanged } = {}) {
+  root.querySelectorAll(".timer-card [data-act]").forEach((btn) => {
+    const act = btn.dataset.act;
+    const id = btn.dataset.id;
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      const store = await import("./store.js");
+      const forms = await import("./forms.js");
+      const b = store.getState().bakes.find((x) => x.id === id);
+      if (act === "bake-done") {
+        store.markBakeDone(id);
+      } else if (act === "bake-snooze") {
+        const alarms = await import("./alarms.js");
+        alarms.snooze(id, 2);
+      } else if (act === "bake-plus") {
+        if (b) store.extendBake(id, 5);
+      } else if (act === "bake-edit") {
+        if (b) forms.openBakeForm({ editBake: b });
+      } else if (act === "bake-remove") {
+        store.removeBake(id);
+      } else if (act === "bake-sys-timer") {
+        if (b) systemTimer(Math.max(1, Math.ceil((b.endAt - Date.now()) / 60000)), b.label);
+      }
+      onChanged?.();
+    };
+  });
+}
 
 export function ovenName(oven) {
   return oven === "door" ? "靠门烘箱" : "靠窗烘箱";
@@ -82,6 +112,7 @@ export function bakeCardHTML(bake, { compact = false } = {}) {
         : `<div class="timer-actions">
             <button class="btn ghost sm" data-act="bake-plus" data-id="${bake.id}">${icon("clock")} 加5分</button>
             <button class="btn ghost sm" data-act="bake-edit" data-id="${bake.id}">${icon("pencil")} 调整</button>
+            ${nativeAvailable() ? `<button class="btn ghost sm" data-act="bake-sys-timer" data-id="${bake.id}" title="用系统时钟计时（后台也能响）">${icon("bell")} 系统倒计时</button>` : ""}
             <button class="btn ghost sm" data-act="bake-remove" data-id="${bake.id}">${icon("trash")}</button>
           </div>`
     }

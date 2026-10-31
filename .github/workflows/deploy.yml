@@ -15,12 +15,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  web:
     runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.tag.outputs.new }}
-      version: ${{ steps.tag.outputs.version }}
-      skipped: ${{ steps.tag.outputs.skipped }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -51,23 +47,17 @@ jobs:
         run: |
           set -e
           [ -n "$SIGNING_KEY" ] || { echo "::error::Secret SIGNING_KEY (ed25519 私钥) 未配置"; exit 1; }
-          # SSH-format ed25519 private key (openssh), imported from secret
           mkdir -p ~/.ssh
           printf '%s\n' "$SIGNING_KEY" > ~/.ssh/signing_key
           chmod 600 ~/.ssh/signing_key
-          # Accept both raw openssh key and PEM; convert PEM ed25519 if needed
           if head -1 ~/.ssh/signing_key | grep -q "BEGIN OPENSSH PRIVATE KEY"; then
             :
           elif head -1 ~/.ssh/signing_key | grep -q "BEGIN PRIVATE KEY"; then
             openssl pkey -in ~/.ssh/signing_key -out ~/.ssh/signing_key_ssh 2>/dev/null && mv ~/.ssh/signing_key_ssh ~/.ssh/signing_key
           fi
-          export SSH_KEYGEN="ssh-keygen"
           ssh-keygen -y -f ~/.ssh/signing_key > /tmp/pub_from_priv.key
           ssh-keygen -Y sign -f ~/.ssh/signing_key -n jiaoji jiaoji-dist.tar.gz jiaoji-dist.zip
-          # ssh-keygen -Y sign writes <file>.sig
-          echo "Public key for verification (add to ~/.ssh/allowed_signers):"
           cat /tmp/pub_from_priv.key
-          echo '--- fingerprint ---'
           ssh-keygen -lf /tmp/pub_from_priv.key
 
       - name: Verify signatures with committed public key
@@ -77,6 +67,102 @@ jobs:
           ssh-keygen -Y verify -f ~/.ssh/allowed_signers -I jiaoji-build -n jiaoji -s jiaoji-dist.tar.gz.sig < jiaoji-dist.tar.gz
           ssh-keygen -Y verify -f ~/.ssh/allowed_signers -I jiaoji-build -n jiaoji -s jiaoji-dist.zip.sig < jiaoji-dist.zip
           echo "SIGNATURES OK"
+
+      - name: Upload web artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: |
+            jiaoji-dist.tar.gz
+            jiaoji-dist.zip
+            jiaoji-dist.tar.gz.sig
+            jiaoji-dist.zip.sig
+            SHA256SUMS.txt
+            signing-key.pub
+          retention-days: 7
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.10.2"
+
+      - name: Read version
+        id: ver
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "name=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore signing keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+        run: |
+          set -e
+          [ -n "$KEYSTORE_B64" ] || { echo "::error::Secret KEYSTORE_B64 未配置"; exit 1; }
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/jiaoji.p12"
+          ls -l "$RUNNER_TEMP/jiaoji.p12"
+
+      - name: Assemble release APK
+        env:
+          KEYSTORE_PATH: ${{ runner.temp }}/jiaoji.p12
+          KS_PASS: ${{ secrets.KS_PASS }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          gradle -p android :app:assembleRelease --no-daemon --stacktrace \
+            -PverCode=${{ steps.ver.outputs.code }} \
+            -PverName=${{ steps.ver.outputs.name }}
+
+      - name: Collect APK
+        run: |
+          set -e
+          mkdir -p out
+          find android/app/build/outputs/apk -name "*.apk" -print
+          cp android/app/build/outputs/apk/release/app-release.apk "out/jiaoji-${{ steps.ver.outputs.name }}-${{ steps.ver.outputs.code }}.apk"
+          ls -lh out/
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: out/*.apk
+          retention-days: 7
+
+  release:
+    needs: [web, android]
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.new }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten
+        run: |
+          set -e
+          ls -R artifacts
+          cp artifacts/web-dist/* .
+          mv artifacts/apk/*.apk jiaoji.apk
+          ls -lh
 
       - name: Bump tag (auto increment)
         id: tag
@@ -99,7 +185,14 @@ jobs:
           git tag -a "$NEW_TAG" -m "Release ${NEW_TAG}"
           git push origin "$NEW_TAG"
           echo "new=${NEW_TAG}" >> "$GITHUB_OUTPUT"
-          echo "version=${NEW_TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checksums
+        if: steps.tag.outputs.skipped != 'true'
+        run: |
+          set -e
+          mv jiaoji.apk "jiaoji-${{ steps.tag.outputs.new }}.apk"
+          sha256sum jiaoji-dist.tar.gz jiaoji-dist.zip "jiaoji-${{ steps.tag.outputs.new }}.apk" > SHA256SUMS.txt
+          cat SHA256SUMS.txt
 
       - name: Release
         if: steps.tag.outputs.skipped != 'true'
@@ -109,17 +202,16 @@ jobs:
           gh release create "${{ steps.tag.outputs.new }}" \
             jiaoji-dist.tar.gz jiaoji-dist.zip \
             jiaoji-dist.tar.gz.sig jiaoji-dist.zip.sig \
+            "jiaoji-${{ steps.tag.outputs.new }}.apk" \
             SHA256SUMS.txt signing-key.pub \
-            --title "${{ steps.tag.outputs.new }}" \
-            --notes "自动构建于 ${{ github.sha }} 。附件含 dist 产物（tar.gz/zip）、ed25519 签名（.sig）与校验和。验证：下载 signing-key.pub 与产物后执行 ssh-keygen -Y verify -f allowed_signers -n jiaoji -s *.sig -i <产物>"
+            --title "胶记 ${{ steps.tag.outputs.new }}" \
+            --notes "**安装包**：下载 \`jiaoji-${{ steps.tag.outputs.new }}.apk\` 直接装到安卓手机（Android 7.0+）。
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: dist
+          附件里还有网页版（tar.gz/zip）、ed25519 签名（.sig）与校验和。
+          网页签名验证：\`ssh-keygen -Y verify -f allowed_signers -I jiaoji-build -n jiaoji -s jiaoji-dist.tar.gz.sig < jiaoji-dist.tar.gz\`"
 
   deploy-pages:
-    needs: build
+    needs: web
     runs-on: ubuntu-latest
     environment:
       name: github-pages

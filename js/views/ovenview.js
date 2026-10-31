@@ -3,9 +3,10 @@
    ============================================================ */
 import { getState, runningBakes, recentDoneBakes } from "../store.js";
 import { icon } from "../ui.js";
-import { bakeCardHTML } from "../cards.js";
+import { bakeCardHTML, bindBakeCardActions } from "../cards.js";
 import { emptyState } from "./today.js";
 import { openBakeForm } from "../forms.js";
+import { go } from "../main.js";
 
 let currentOven = "door";
 
@@ -92,6 +93,8 @@ export function renderOven(root) {
   });
   const addBtn = root.querySelector("[data-act=add]");
   addBtn.onclick = () => openBakeForm({ oven: currentOven });
+
+  bindBakeCardActions(root, { onChanged: () => renderOven(root) });
 }
 
 function escapeHtml(s) {

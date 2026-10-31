@@ -4,7 +4,7 @@
 import { getState, getType, getSample, setTestValue, addTestToSample, removeTestFromSample, markBakeDone, removeBake, completeSample, reopenSample, updateSample, deleteSample, createStandaloneSample } from "../store.js";
 import { $, esc, debounce, fmtNum, fmtRange, dateKey, hmsClock, uid } from "../utils.js";
 import { icon, toast, openSheet, confirmDialog } from "../ui.js";
-import { verdictOf, sampleStats, bakeCardHTML, verdictChip } from "../cards.js";
+import { verdictOf, sampleStats, bakeCardHTML, verdictChip, bindBakeCardActions } from "../cards.js";
 import { openBakeForm } from "../forms.js";
 import { go } from "../main.js";
 
@@ -225,25 +225,8 @@ export function renderSampleDetail(root) {
 
   root.querySelector("#dt-bake-add").onclick = () => openBakeForm({ sample: s });
 
-  // bake cards actions
-  root.querySelectorAll("[data-act]").forEach((el) => {
-    const act = el.dataset.act;
-    const bid = el.dataset.bake;
-    el.onclick = (e) => {
-      e.stopPropagation();
-      if (act === "bake-done") markBakeDone(bid);
-      if (act === "bake-plus") {
-        const b = getState().bakes.find((x) => x.id === bid);
-        openBakeForm({ sample: s, oven: b?.oven || "door" });
-      }
-      if (act === "bake-edit") {
-        const b = getState().bakes.find((x) => x.id === bid);
-        openBakeForm({ editBake: b });
-      }
-      if (act === "bake-remove") removeBake(bid);
-      renderSampleDetail(root);
-    };
-  });
+  // bake cards actions (shared binder)
+  bindBakeCardActions(root, { onChanged: () => renderSampleDetail(root) });
 }
 
 /** add-test sheet: pick from type template or custom */

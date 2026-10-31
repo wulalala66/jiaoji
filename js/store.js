@@ -433,6 +433,17 @@ export function markBakeDone(id) {
   });
 }
 
+/** add minutes to a running bake ("加5分") */
+export function extendBake(id, minutes = 5) {
+  mutate((s) => {
+    const b = s.bakes.find((x) => x.id === id);
+    if (!b) return;
+    b.minutes = (b.minutes || 0) + minutes;
+    b.endAt = b.endAt + minutes * 60000;
+    if (b.status === "due" && b.endAt > Date.now()) b.status = "running";
+  });
+}
+
 export function removeBake(id) {
   mutate((s) => {
     s.bakes = s.bakes.filter((x) => x.id !== id);
