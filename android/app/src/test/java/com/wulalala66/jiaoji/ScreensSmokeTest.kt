@@ -52,6 +52,21 @@ class ScreensSmokeTest {
     @Test
     fun ovens() = smoke { s, now -> OvensScreen(s, now, {}, {}) }
 
+    /** 自定义烘箱（多于两台）也要能正常渲染，首页那一行会变成横向滚动 */
+    @Test
+    fun ovensWithCustomOvens() {
+        Repo.I.addOven("三号炉")
+        Repo.I.addOven("四号炉")
+        smoke { s, now -> OvensScreen(s, now, {}, {}) }
+    }
+
+    @Test
+    fun todayWithCustomOvens() {
+        Repo.I.addOven("三号炉")
+        Repo.I.addOven("四号炉")
+        smoke { s, now -> TodayScreen(s, now, {}, {}, {}, {}) }
+    }
+
     @Test
     fun records() = smoke { s, now -> RecordsScreen(s, now, {}) }
 
