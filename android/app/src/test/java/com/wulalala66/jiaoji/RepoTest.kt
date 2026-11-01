@@ -146,7 +146,7 @@ class RepoTest {
 
     @Test
     fun bakeActions() {
-        val id = Repo.I.addBake("door", null, "底涂胶", 140, 30, now - 6 * 60_000L)
+        val id = Repo.I.addBake("door", null, "底涂胶", 140, 30, now - 6 * 60_000L)!!
         val b0 = state().bakes.first { it.id == id }
         assertEquals("running", b0.status)
 

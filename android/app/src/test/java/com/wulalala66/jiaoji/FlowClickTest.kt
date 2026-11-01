@@ -42,7 +42,7 @@ class FlowClickTest {
         Repo.I.clearAll()
         val task = Repo.I.addSampling("安徽万安", "base", now + 20 * 60_000L, "早班")
         sampleId = Repo.I.confirmSampled(task, false, "door", 140, 30) ?: ""
-        bakeId = Repo.I.addBake("door", sampleId, "底涂胶", 140, 30, now - 6 * 60_000L)
+        bakeId = Repo.I.addBake("door", sampleId, "底涂胶", 140, 30, now - 6 * 60_000L)!!
         Repo.I.addBake("window", null, "焊缝胶", 160, 20, now - 26 * 60_000L)
         // 另留一个「还没取样」的任务，用来测「已取样」按钮
         Repo.I.addSampling("奇瑞", "weld", now + 25 * 60_000L, "下午班")
