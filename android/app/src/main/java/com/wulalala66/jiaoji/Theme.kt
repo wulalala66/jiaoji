@@ -33,6 +33,22 @@ val OvenDoorSoft = Color(0xFFE6EDF5)
 val OvenWindow = Color(0xFF9B6412)
 val OvenWindowSoft = Color(0xFFFBF0DC)
 
+/**
+ * 烘箱配色：新增烘箱时按 colorIdx 轮流取色，保证每个烘箱一眼能分清。
+ * 靠门=蓝、靠窗=琥珀，其余是紫 / 青 / 玫红 / 橄榄。
+ */
+private val ovenAccents = listOf(
+    OvenDoor, OvenWindow,
+    Color(0xFF6A4B8C), Color(0xFF2F7A6B), Color(0xFFA24A6A), Color(0xFF57702F),
+)
+
+fun ovenAccent(colorIdx: Int): Color {
+    val i = ((colorIdx % ovenAccents.size) + ovenAccents.size) % ovenAccents.size
+    return ovenAccents[i]
+}
+
+fun ovenSoft(colorIdx: Int): Color = ovenAccent(colorIdx).copy(alpha = 0.13f)
+
 private val scheme = lightColorScheme(
     primary = Brand,
     onPrimary = Color.White,

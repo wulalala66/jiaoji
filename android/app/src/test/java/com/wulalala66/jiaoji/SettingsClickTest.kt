@@ -180,4 +180,47 @@ class SettingsClickTest {
         assertTrue("开始时间必须是按按钮那一刻，而不是进页面的时刻", b.startAt >= before - 100)
         assertEquals(30L * 60_000L, b.endAt - b.startAt)
     }
+
+    /** 一个烘箱同时只能放一个：占用时表单要提示，并且按钮禁用 */
+    @Test
+    fun bakeFormBlocksOccupiedOven() {
+        Repo.I.init(RuntimeEnvironment.getApplication())
+        Repo.I.clearAll()
+        val a = Repo.I.createStandaloneSample("安徽万安", "base")!!
+        val b = Repo.I.createStandaloneSample("奇瑞", "weld")!!
+        Repo.I.addBake("door", a, "底涂胶", 140, 30, System.currentTimeMillis())
+
+        var saved = false
+        rule.setContent {
+            val s by Repo.I.state.collectAsState()
+            JiaoJiTheme {
+                BakeFormScreen(
+                    state = s,
+                    bakeId = null,
+                    sampleId = b,
+                    defaultOven = "door",
+                    onBack = {},
+                    onSaved = { saved = true },
+                )
+            }
+        }
+        rule.waitForIdle()
+
+        // 靠门烘箱被占着 → 提示出现，按钮不可用
+        rule.onNodeWithText("一个烘箱同时只能放一个", substring = true).assertExists()
+        rule.onNodeWithText("开始计时").performClick()
+        rule.waitForIdle()
+        assertFalse("占用时点了也不该保存", saved)
+        assertEquals(1, Repo.I.state.value.bakes.size)
+
+        // 换成靠窗烘箱 → 提示消失，可以开始计时
+        rule.onNodeWithText("靠窗烘箱").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("一个烘箱同时只能放一个", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("开始计时").performClick()
+        rule.waitForIdle()
+        assertTrue(saved)
+        assertEquals(2, Repo.I.state.value.bakes.size)
+        assertEquals("window", Repo.I.state.value.bakes.last().oven)
+    }
 }

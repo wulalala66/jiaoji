@@ -139,7 +139,8 @@ class Repo private constructor() {
             task.status = "done"
             task.sampleId = sample.id
             task.dueAlarmed = true
-            if (withBake) {
+            // 烘箱已经被别的样品占着就不硬塞，样品照样建档
+            if (withBake && s.bakeInOven(oven) == null) {
                 s.bakes.add(
                     makeBake(oven, sample.id, sampleTitle(s, sample), tempC, minutes, System.currentTimeMillis())
                 )
@@ -269,7 +270,7 @@ class Repo private constructor() {
         val end = startAt + minutes * 60_000L
         return Bake(
             id = "bake_" + uid(),
-            oven = if (oven == "window") "window" else "door",
+            oven = oven,
             sampleId = sampleId,
             label = label,
             tempC = tempC,
@@ -281,7 +282,12 @@ class Repo private constructor() {
         )
     }
 
-    fun addBake(oven: String, sampleId: String?, label: String, tempC: Int, minutes: Int, startAt: Long): String {
+    /**
+     * 放一个样品进烘箱。一个烘箱同时只能放一个（物理上就是这样），
+     * 已经被占用时返回 null，调用方负责提示。
+     */
+    fun addBake(oven: String, sampleId: String?, label: String, tempC: Int, minutes: Int, startAt: Long): String? {
+        if (I.state.value.bakeInOven(oven) != null) return null
         val b = makeBake(oven, sampleId, label, tempC, minutes, startAt)
         mutate { s -> s.bakes.add(b) }
         return b.id
@@ -331,7 +337,11 @@ class Repo private constructor() {
     ) {
         mutate { s ->
             s.bakes.firstOrNull { it.id == id }?.apply {
-                this.oven = if (oven == "window") "window" else "door"
+                // 目标烘箱已经被别的计时占着就保持原烘箱
+                val busyByOther = s.bakes.any {
+                    it.id != id && it.oven == oven && (it.status == "running" || it.status == "due")
+                }
+                if (!busyByOther) this.oven = oven
                 this.label = label
                 this.tempC = tempC
                 this.minutes = minutes
@@ -362,6 +372,33 @@ class Repo private constructor() {
      */
     fun updateSettings(block: (Settings) -> Settings) {
         mutate { s -> s.settings = block(s.settings) }
+    }
+
+    fun addOven(name: String): String? {
+        val n = name.trim()
+        if (n.isEmpty()) return null
+        var newId: String? = null
+        mutate { s ->
+            if (s.ovens.any { it.name == n }) return@mutate
+            val id = "oven_" + uid()
+            s.ovens.add(Oven(id = id, name = n, colorIdx = s.ovens.size))
+            newId = id
+        }
+        return newId
+    }
+
+    fun renameOven(id: String, name: String) {
+        val n = name.trim()
+        if (n.isEmpty()) return
+        mutate { s -> s.ovens.firstOrNull { it.id == id }?.name = n }
+    }
+
+    /** 只有空着、且不是最后一个烘箱才能删 */
+    fun removeOven(id: String): Boolean {
+        if (I.state.value.ovens.size <= 1) return false
+        if (I.state.value.bakeInOven(id) != null) return false
+        mutate { s -> s.ovens.removeAll { it.id == id } }
+        return true
     }
 
     fun addCustomer(name: String) {

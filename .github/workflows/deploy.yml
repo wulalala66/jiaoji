@@ -172,14 +172,16 @@ jobs:
           AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
           echo "aapt2: $AAPT2"
           "$AAPT2" dump resources "$APK" > /tmp/res.txt || true
-          # 资源压缩会把 res/raw/ring.wav 改名成 res/xx.wav，所以按资源表查而不是按路径查
-          if grep -q "raw/ring" /tmp/res.txt; then
-            echo "内置铃声已打进 APK ✓"
-          else
-            echo "::error::raw/ring 被资源压缩删掉了，取不到系统闹铃的机型会彻底不响"
-            grep -i "raw" /tmp/res.txt | head -5 || true
-            exit 1
-          fi
+          # 资源压缩会把 res/raw/ring.ogg 改名成 res/xx.ogg，所以按资源表查而不是按路径查
+          for name in raw/ring raw/chime; do
+            if grep -q "$name" /tmp/res.txt; then
+              echo "内置音效 $name 已打进 APK ✓"
+            else
+              echo "::error::$name 被资源压缩删掉了，取不到系统闹铃的机型会彻底不响"
+              grep -i "raw" /tmp/res.txt | head -5 || true
+              exit 1
+            fi
+          done
 
       - name: Collect APK
         run: |

@@ -179,6 +179,15 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
             SectionHeader("测试", trailing = null)
             AppCard {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DiagButton("提前提醒音效", false) {
+                        try {
+                            ContextCompat.startForegroundService(
+                                ctx,
+                                RingService.intent(ctx, "test:", "提前提醒", "这就是出炉前 5 分钟的提示音", "pre", 6000)
+                            )
+                        } catch (_: Throwable) {
+                        }
+                    }
                     DiagButton("响铃 5 秒", true) {
                         try {
                             ContextCompat.startForegroundService(

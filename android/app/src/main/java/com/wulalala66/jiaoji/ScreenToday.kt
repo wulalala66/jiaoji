@@ -1,6 +1,8 @@
 package com.wulalala66.jiaoji
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -100,9 +102,22 @@ fun TodayScreen(
         }
 
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OvenTile(state, "door", now, Modifier.weight(1f), onOpenOven)
-                OvenTile(state, "window", now, Modifier.weight(1f), onOpenOven)
+            if (state.ovens.size <= 2) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    state.ovens.forEach { ov ->
+                        OvenTile(state, ov.id, now, Modifier.weight(1f), onOpenOven)
+                    }
+                }
+            } else {
+                // 烘箱多了就横着滑，不挤成一坨
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    state.ovens.forEach { ov ->
+                        OvenTile(state, ov.id, now, Modifier.width(150.dp), onOpenOven)
+                    }
+                }
             }
         }
 
@@ -178,9 +193,9 @@ private fun OvenTile(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    val window = oven == "window"
-    val accent = if (window) OvenWindow else OvenDoor
-    val soft = if (window) OvenWindowSoft else OvenDoorSoft
+    val colorIdx = state.ovenColorIdx(oven)
+    val accent = ovenAccent(colorIdx)
+    val soft = ovenSoft(colorIdx)
     val list = state.runningBakes(oven)
     val first = list.firstOrNull()
     Column(
@@ -196,7 +211,13 @@ private fun OvenTile(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Dot(accent, 7)
             Spacer(Modifier.width(6.dp))
-            Text(ovenName(oven), style = MaterialTheme.typography.labelMedium, color = accent)
+            Text(
+                state.ovenName(oven),
+                style = MaterialTheme.typography.labelMedium,
+                color = accent,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
         Spacer(Modifier.height(8.dp))
         if (first == null) {
@@ -345,12 +366,12 @@ fun SampleBakesSection(state: AppState, sampleId: String, now: Long, onBake: () 
 fun BakeRow(state: AppState, b: Bake, now: Long) {
     val left = b.endAt - now
     val running = b.status == "running" || b.status == "due"
-    val accent = if (b.oven == "window") OvenWindow else OvenDoor
+    val accent = ovenAccent(state.ovenColorIdx(b.oven))
     AppCard(borderColor = if (b.status == "due") Color(0x55BD4632) else Line) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    OvenPill(b.oven)
+                    OvenPill(state, b.oven)
                     Spacer(Modifier.width(6.dp))
                     Text(
                         "${b.tempC}℃ × ${Fmt.dur(b.minutes)}",

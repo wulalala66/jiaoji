@@ -49,13 +49,9 @@ fun OvensScreen(
     onNewBake: (String) -> Unit,
     onOpenSample: (String) -> Unit,
 ) {
-    var oven by remember { mutableStateOf("door") }
-    val window = oven == "window"
-    val accent = if (window) OvenWindow else OvenDoor
-    val list = state.runningBakes(oven)
-    val recent = state.recentBakes(now - 12 * 3_600_000L).filter { it.oven == oven }
     val ctx = LocalContext.current
     var confirmRemove by remember { mutableStateOf<String?>(null) }
+    val recent = state.recentBakes(now - 12 * 3_600_000L)
 
     LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 28.dp),
@@ -65,61 +61,77 @@ fun OvensScreen(
             Column {
                 Text("烘箱", style = MaterialTheme.typography.displaySmall, color = Ink)
                 Spacer(Modifier.height(2.dp))
-                Text("两个烘箱分开计时，到点会响铃提醒", style = MaterialTheme.typography.bodyMedium, color = Ink3)
-            }
-        }
-
-        item {
-            Row(Modifier.padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OvenSwitch("靠门烘箱", oven == "door", OvenDoor) { oven = "door" }
-                OvenSwitch("靠窗烘箱", oven == "window", OvenWindow) { oven = "window" }
-            }
-        }
-
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(MaterialTheme.shapes.medium)
-                    .background(accent)
-                    .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(),
-            ) { onNewBake(oven) }
-                    .padding(vertical = 13.dp),
-                contentAlignment = Alignment.Center,
-            ) {
                 Text(
-                    "＋ 在${ovenName(oven)}放一个样品",
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleMedium,
+                    "一个烘箱同时只放一个样品 · 到点响铃提醒",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Ink3,
                 )
             }
         }
 
-        if (list.isEmpty()) {
-            item {
-                AppCard {
-                    EmptyHint(
-                        "⏱",
-                        "${ovenName(oven)}现在空着",
-                        "放进去后点上面的按钮开始计时，到点手机响铃提醒",
+        state.ovens.forEach { ov ->
+            val list = state.runningBakes(ov.id)
+            val colorIdx = ov.colorIdx
+            val accent = ovenAccent(colorIdx)
+
+            item(key = "head-" + ov.id) {
+                Row(
+                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Dot(accent, 8)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        ov.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Ink,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
                     )
+                    if (list.isEmpty()) {
+                        Pill("空闲", Ok, OkSoft)
+                    } else {
+                        Pill("占用中", accent, ovenSoft(colorIdx))
+                    }
                 }
             }
-        } else {
-            items(list, key = { it.id }) { b ->
-                TimerCard(
-                    state = state,
-                    b = b,
-                    now = now,
-                    onOpenSample = onOpenSample,
-                    onSysTimer = {
-                        val secs = ((b.endAt - System.currentTimeMillis()) / 1000).toInt().coerceAtLeast(10)
-                        startSystemTimer(ctx, secs, "${b.label} ${b.tempC}℃")
-                    },
-                    onRemove = { confirmRemove = b.id },
-                )
+
+            if (list.isEmpty()) {
+                item(key = "empty-" + ov.id) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(MaterialTheme.shapes.medium)
+                            .background(ovenSoft(colorIdx))
+                            .sizeIn(minHeight = 56.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = ripple(),
+                            ) { onNewBake(ov.id) }
+                            .padding(vertical = 14.dp, horizontal = 14.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            "＋ 放一个样品进${ov.name}",
+                            color = accent,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
+                }
+            } else {
+                items(list, key = { it.id }) { b ->
+                    TimerCard(
+                        state = state,
+                        b = b,
+                        now = now,
+                        onOpenSample = onOpenSample,
+                        onSysTimer = {
+                            val secs = ((b.endAt - System.currentTimeMillis()) / 1000).toInt().coerceAtLeast(10)
+                            startSystemTimer(ctx, secs, "${b.label} ${b.tempC}℃")
+                        },
+                        onRemove = { confirmRemove = b.id },
+                    )
+                }
             }
         }
 
@@ -129,13 +141,17 @@ fun OvensScreen(
                 AppCard {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(
-                                b.label.ifBlank { "烘烤样品" },
-                                style = MaterialTheme.typography.titleSmall,
-                                color = Ink2,
-                                maxLines = 1,
-                            )
-                            Spacer(Modifier.height(2.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                OvenPill(state, b.oven)
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    b.label.ifBlank { "烘烤样品" },
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = Ink2,
+                                    maxLines = 1,
+                                )
+                            }
+                            Spacer(Modifier.height(3.dp))
                             Text(
                                 "${b.tempC}℃ × ${Fmt.dur(b.minutes)} · ${Fmt.hm(b.doneAt ?: b.endAt)} 取出 · ${Fmt.ago(b.doneAt ?: b.endAt, now)}",
                                 style = MaterialTheme.typography.bodySmall,
@@ -169,26 +185,6 @@ fun OvensScreen(
 }
 
 @Composable
-private fun OvenSwitch(text: String, active: Boolean, accent: Color, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(if (active) accent else CardBg)
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(),
-            ) { onClick() }
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-    ) {
-        Text(
-            text,
-            color = if (active) Color.White else Ink2,
-            style = MaterialTheme.typography.labelLarge,
-        )
-    }
-}
-
-@Composable
 @OptIn(ExperimentalLayoutApi::class)
 private fun TimerCard(
     state: AppState,
@@ -198,8 +194,8 @@ private fun TimerCard(
     onSysTimer: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    val window = b.oven == "window"
-    val accent = if (window) OvenWindow else OvenDoor
+    val colorIdx = state.ovenColorIdx(b.oven)
+    val accent = ovenAccent(colorIdx)
     val due = b.status == "due"
     val total = (b.endAt - b.startAt).coerceAtLeast(1)
     val passed = (now - b.startAt).coerceAtLeast(0)
@@ -208,7 +204,7 @@ private fun TimerCard(
 
     AppCard(borderColor = if (due) Color(0x55BD4632) else Line) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            OvenPill(b.oven)
+            OvenPill(state, b.oven)
             Spacer(Modifier.width(6.dp))
             Text(
                 "${b.tempC}℃ × ${Fmt.dur(b.minutes)}",
@@ -219,7 +215,7 @@ private fun TimerCard(
             if (due) {
                 Pill("超时 " + Fmt.dur((((now - b.endAt).coerceAtLeast(0)) / 60000L).toInt()), Color.White, Danger)
             } else {
-                Pill("计时中", accent, if (window) OvenWindowSoft else OvenDoorSoft)
+                Pill("计时中", accent, ovenSoft(colorIdx))
             }
         }
         Spacer(Modifier.height(10.dp))

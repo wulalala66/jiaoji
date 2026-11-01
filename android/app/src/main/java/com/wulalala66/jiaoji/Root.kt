@@ -174,7 +174,11 @@ fun Root() {
                     now = now,
                     sampleId = s.sampleId,
                     onBack = { screen = Screen.Today },
-                    onBake = { screen = Screen.BakeForm(sampleId = s.sampleId) },
+                    onBake = {
+                        val free = state.freeOvens().firstOrNull()?.id
+                            ?: state.ovens.firstOrNull()?.id ?: "door"
+                        screen = Screen.BakeForm(sampleId = s.sampleId, oven = free)
+                    },
                 )
 
                 is Screen.AddTask -> AddTaskScreen(
@@ -337,7 +341,7 @@ private fun RingBanner(
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
                     )
                     Text(
-                        "${ovenName(bake.oven)} · ${bake.tempC}℃ · 已超 ${Fmt.hms(now - bake.endAt)}",
+                        "${state.ovenName(bake.oven)} · ${bake.tempC}℃ · 已超 ${Fmt.hms(now - bake.endAt)}",
                         color = Color(0xFFFFE3DC),
                         fontSize = 12.sp,
                     )

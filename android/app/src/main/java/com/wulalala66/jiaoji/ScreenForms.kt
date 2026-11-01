@@ -340,9 +340,24 @@ fun BakeFormScreen(
         AppCard {
             Text("哪个烘箱", style = MaterialTheme.typography.labelMedium, color = Ink3)
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                ChoiceChip("靠门烘箱", oven == "door") { oven = "door" }
-                ChoiceChip("靠窗烘箱", oven == "window") { oven = "window" }
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                state.ovens.forEach { ov ->
+                    val taken = state.bakeInOven(ov.id)?.let { it.id != editing?.id } ?: false
+                    ChoiceChip(if (taken) "${ov.name} 占用" else ov.name, oven == ov.id) { oven = ov.id }
+                }
+            }
+            val occ = state.bakeInOven(oven)?.takeIf { it.id != editing?.id }
+            if (occ != null) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "${state.ovenName(oven)}里还放着样品，${Fmt.hm(occ.endAt)} 才出炉。" +
+                        "一个烘箱同时只能放一个，先换一个烘箱，或者等它出炉。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Warn,
+                )
             }
         }
 
@@ -456,9 +471,10 @@ fun BakeFormScreen(
         }
 
         Spacer(Modifier.height(14.dp))
+        val ovenTaken = state.bakeInOven(oven)?.let { it.id != editing?.id } ?: false
         PrimaryButton(
             text = if (editing == null) "开始计时" else "保存修改",
-            enabled = ok,
+            enabled = ok && !ovenTaken,
         ) {
             // 「现在开始」必须在按下的这一瞬间取时间，
             // 否则进页面到按按钮之间填表的那几分钟会被算进烘烤时长。
@@ -686,6 +702,7 @@ fun TypeEditorScreen(state: AppState, typeId: String?, onBack: () -> Unit) {
 
 /* ---------------- 已取样确认 ---------------- */
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SampledDialog(
     state: AppState,
@@ -695,7 +712,9 @@ fun SampledDialog(
 ) {
     val type = state.typeOf(task.typeId)
     var withBake by remember { mutableStateOf(true) }
-    var oven by remember { mutableStateOf("door") }
+    var oven by remember {
+        mutableStateOf(state.freeOvens().firstOrNull()?.id ?: state.ovens.firstOrNull()?.id ?: "door")
+    }
     var temp by remember { mutableStateOf((type?.bakes?.firstOrNull()?.tempC ?: 0).toString()) }
     var minutes by remember { mutableStateOf((type?.bakes?.firstOrNull()?.minutes ?: 0).toString()) }
     val hasPreset = !type?.bakes.isNullOrEmpty()
@@ -722,13 +741,21 @@ fun SampledDialog(
                 }
                 if (withBake) {
                     Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        ChoiceChip("靠门", oven == "door") { oven = "door" }
-                        ChoiceChip("靠窗", oven == "window") { oven = "window" }
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        state.ovens.forEach { ov ->
+                            val taken = state.bakeInOven(ov.id) != null
+                            ChoiceChip(if (taken) "${ov.name} 占用" else ov.name, oven == ov.id) { oven = ov.id }
+                        }
                     }
                     Spacer(Modifier.height(10.dp))
                     if (hasPreset) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
                             type!!.bakes.forEach { p ->
                                 ChoiceChip(
                                     "${p.tempC}℃ ${p.minutes}分",

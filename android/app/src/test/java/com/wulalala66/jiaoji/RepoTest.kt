@@ -253,4 +253,80 @@ class RepoTest {
         assertEquals(1, state().samples.size)
         assertEquals("1.5", state().samples[0].tests.first().value)
     }
+
+    // ---------------- 烘箱 ----------------
+
+    @Test
+    fun oneSamplePerOven() {
+        val sampleId = Repo.I.createStandaloneSample("安徽万安", "base")!!
+        val first = Repo.I.addBake("door", sampleId, "底涂胶", 140, 30, now)
+        assertNotNull("空烘箱应该能放进去", first)
+
+        val second = Repo.I.addBake("door", sampleId, "焊缝胶", 160, 20, now)
+        assertNull("同一个烘箱不能同时放第二个", second)
+        assertEquals(1, state().runningBakes("door").size)
+
+        val other = Repo.I.addBake("window", sampleId, "焊缝胶", 160, 20, now)
+        assertNotNull("换个烘箱就能放", other)
+        assertEquals(1, state().runningBakes("window").size)
+
+        // 出炉后又能放了
+        Repo.I.markBakeDone(first!!)
+        assertNotNull("出炉后烘箱空了", Repo.I.addBake("door", sampleId, "底涂胶", 140, 30, now))
+    }
+
+    @Test
+    fun updateBakeCannotJumpIntoOccupiedOven() {
+        val sampleId = Repo.I.createStandaloneSample("安徽万安", "base")!!
+        val a = Repo.I.addBake("door", sampleId, "A", 140, 30, now)!!
+        val b = Repo.I.addBake("window", sampleId, "B", 140, 30, now)!!
+        Repo.I.updateBake(b, oven = "door", label = "B", tempC = 140, minutes = 30, startAt = now, sampleId = sampleId)
+        assertEquals("靠门烘箱被占着，改烘箱应该被拒绝", "window", state().bakes.first { it.id == b }.oven)
+        assertEquals("door", state().bakes.first { it.id == a }.oven)
+    }
+
+    @Test
+    fun ovensAddRenameRemove() {
+        assertEquals(listOf("靠门烘箱", "靠窗烘箱"), state().ovens.map { it.name })
+
+        val id = Repo.I.addOven("2 号炉")
+        assertNotNull(id)
+        assertTrue(state().ovens.any { it.name == "2 号炉" })
+        assertEquals(3, state().ovens.size)
+
+        Repo.I.addOven("2 号炉")
+        assertEquals("重名不再加一个", 3, state().ovens.size)
+
+        Repo.I.renameOven(id!!, "三号烘箱")
+        assertEquals("三号烘箱", state().ovenName(id))
+        assertEquals("三号烘箱", state().ovens.first { it.id == id }.name)
+
+        // 空着就能删
+        assertTrue(Repo.I.removeOven(id))
+        assertEquals(2, state().ovens.size)
+
+        // 占用的不能删
+        val sampleId = Repo.I.createStandaloneSample("安徽万安", "base")!!
+        Repo.I.addBake("door", sampleId, "A", 140, 30, now)
+        assertFalse("有计时在跑就不能删烘箱", Repo.I.removeOven("door"))
+        assertEquals(2, state().ovens.size)
+
+        // 也不能把烘箱删光
+        Repo.I.removeOven("window")
+        assertFalse("最后一个烘箱不能删", Repo.I.removeOven("door"))
+        assertEquals(1, state().ovens.size)
+    }
+
+    @Test
+    fun customOvenNameReachesBakeAndAlarm() {
+        val id = Repo.I.addOven("三号烘箱")!!
+        val sampleId = Repo.I.createStandaloneSample("安徽万安", "base")!!
+        Repo.I.addBake(id, sampleId, "底涂胶", 140, 30, now)
+        val b = state().bakes.last()
+        assertEquals(id, b.oven)
+        assertEquals("三号烘箱", state().ovenName(b.oven))
+        // 排定的闹钟里应该带自定义名字
+        val pending = AlarmScheduler.pendingMap(RuntimeEnvironment.getApplication())
+        assertTrue("自定义烘箱的计时也要排上闹钟", pending.containsKey("b:${b.id}"))
+    }
 }

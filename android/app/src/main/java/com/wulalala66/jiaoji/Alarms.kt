@@ -114,12 +114,12 @@ object AlarmScheduler {
                 val at = b.endAt - pre * 60_000L
                 if (at > now) desired["bp:${b.id}"] = AlarmItem(
                     at, "还有 $pre 分钟出炉",
-                    "${b.label} · ${b.tempC}℃ · ${ovenName(b.oven)}", "pre"
+                    "${b.label} · ${b.tempC}℃ · ${s.ovenName(b.oven)}", "pre"
                 )
             }
             if (b.endAt > now) desired["b:${b.id}"] = AlarmItem(
                 b.endAt, "烘烤完成 · 该出炉了",
-                "${b.label} · ${b.tempC}℃ ${b.minutes}分钟 · ${ovenName(b.oven)}", "due"
+                "${b.label} · ${b.tempC}℃ ${b.minutes}分钟 · ${s.ovenName(b.oven)}", "due"
             )
         }
 
@@ -409,14 +409,16 @@ class RingService : Service() {
         val s = Repo.read(this)
         val testing = kind == "test"
         if (s.settings.sound || testing) {
-            startSound(kind == "due" || testing)
+            startSound(if (kind == "due" || testing) "alarm" else "chime")
         } else {
             AlarmLog.add(this, "声音开关是关的，跳过铃声")
         }
         if ((kind == "due" || testing) && (s.settings.vibrate || testing)) startVibrate()
 
-        if (autoStop > 0) {
-            handler.postDelayed({ stopSelf() }, autoStop.toLong())
+        // 提前提醒响两声就停（20 秒），到点铃声一直响到用户确认
+        val stopAfter = if (autoStop > 0) autoStop.toLong() else if (kind == "pre") 20_000L else 0L
+        if (stopAfter > 0) {
+            handler.postDelayed({ stopSelf() }, stopAfter)
         }
         return START_NOT_STICKY
     }
@@ -435,66 +437,71 @@ class RingService : Service() {
         }
     }
 
-    private fun startSound(loud: Boolean) {
+    /** mode = "alarm"（到点）| "chime"（提前提醒） */
+    private fun startSound(mode: String) {
         releasePlayer()
+        val chime = mode == "chime"
         val candidates = ArrayList<Uri>()
         fun safeAdd(uri: Uri?) {
             if (uri != null && !candidates.contains(uri)) candidates.add(uri)
         }
-        try {
-            if (loud) {
+        if (chime) {
+            // 提前提醒：只用 App 自带的提示音，不再借用系统通知音（各家 ROM 的通知音又短又杂）
+            safeAdd(Uri.parse("android.resource://$packageName/${R.raw.chime}"))
+        } else {
+            try {
                 safeAdd(RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM))
                 safeAdd(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
                 safeAdd(RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_RINGTONE))
                 safeAdd(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
-            } else {
-                safeAdd(RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_NOTIFICATION))
-                safeAdd(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+            } catch (e: Throwable) {
+                AlarmLog.add(this, "读取系统铃声失败 ${e.javaClass.simpleName}")
             }
-        } catch (e: Throwable) {
-            AlarmLog.add(this, "读取系统铃声失败 ${e.javaClass.simpleName}")
+            // 兜底：内置铃声，保证一定有声音
+            safeAdd(Uri.parse("android.resource://$packageName/${R.raw.ring}"))
         }
-        // 兜底：内置提示音，保证一定有声音
-        safeAdd(Uri.parse("android.resource://$packageName/${R.raw.ring}"))
 
-        bumpVolume()
+        bumpVolume(chime)
 
         for (uri in candidates) {
             try {
                 val mp = MediaPlayer()
                 mp.setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(if (loud) AudioAttributes.USAGE_ALARM else AudioAttributes.USAGE_NOTIFICATION_EVENT)
+                        // 用闹钟流：手机静音/振动模式也能响，车间里不会漏
+                        .setUsage(AudioAttributes.USAGE_ALARM)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
                 )
                 mp.setDataSource(this, uri)
                 mp.isLooping = true
-                mp.setVolume(1f, 1f)
+                val vol = if (chime) 0.65f else 1f
+                mp.setVolume(vol, vol)
                 mp.setOnErrorListener { _, what, extra ->
                     AlarmLog.add(this, "✗ 播放器错误 $what/$extra $uri")
                     true
                 }
-                // 同步 prepare：本地铃声/内置资源都很快，失败能立刻换下一个候选
+                // 同步 prepare：本地音效/内置资源都很快，失败能立刻换下一个候选
                 mp.prepare()
                 mp.start()
                 player = mp
-                AlarmLog.add(this, "▶ 正在播放 $uri")
+                AlarmLog.add(this, "▶ 正在播放($mode) $uri")
                 return
             } catch (e: Throwable) {
-                AlarmLog.add(this, "✗ 铃声不可用 ${e.javaClass.simpleName} $uri")
+                AlarmLog.add(this, "✗ 音效不可用 ${e.javaClass.simpleName} $uri")
                 releasePlayer()
             }
         }
-        AlarmLog.add(this, "✗ 没有任何可用铃声")
+        AlarmLog.add(this, "✗ 没有任何可用音效")
     }
 
-    private fun bumpVolume() {
+    private fun bumpVolume(soft: Boolean = false) {
         try {
             val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM)
             val cur = am.getStreamVolume(AudioManager.STREAM_ALARM)
-            val target = (max * 0.7f).toInt().coerceAtLeast(1)
+            val ratio = if (soft) 0.55f else 0.8f
+            val target = (max * ratio).toInt().coerceAtLeast(1)
             if (cur < target) {
                 am.setStreamVolume(AudioManager.STREAM_ALARM, target, 0)
                 AlarmLog.add(this, "闹钟音量 $cur → $target（最大 $max）")

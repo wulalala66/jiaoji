@@ -57,6 +57,9 @@ fun SettingsScreen(state: AppState, onOpenType: (String?) -> Unit, onOpenDiagnos
     val ctx = LocalContext.current
     val s = state.settings
     var showAddCustomer by remember { mutableStateOf(false) }
+    var showAddOven by remember { mutableStateOf(false) }
+    var renameOvenTarget by remember { mutableStateOf<String?>(null) }
+    var confirmDeleteOven by remember { mutableStateOf<String?>(null) }
     var renameTarget by remember { mutableStateOf<String?>(null) }
     var showImport by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
@@ -195,6 +198,38 @@ fun SettingsScreen(state: AppState, onOpenType: (String?) -> Unit, onOpenDiagnos
             }
         }
 
+        item { SectionHeader("烘箱", action = "＋ 新增", onAction = { showAddOven = true }) }
+
+        item {
+            AppCard {
+                Text(
+                    "一个烘箱同时只放一个样品。以后车间加新烘箱，在这里添上就行，计时和提醒会自动跟上。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Ink3,
+                )
+                Spacer(Modifier.height(10.dp))
+                state.ovens.forEachIndexed { i, ov ->
+                    if (i > 0) Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Dot(ovenAccent(ov.colorIdx), 8)
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(ov.name, style = MaterialTheme.typography.bodyLarge, color = Ink)
+                            val b = state.bakeInOven(ov.id)
+                            Text(
+                                if (b == null) "空闲" else "占用中 · ${Fmt.hm(b.endAt)} 出炉",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (b == null) Ink3 else ovenAccent(ov.colorIdx),
+                            )
+                        }
+                        SmallButton("改名") { renameOvenTarget = ov.id }
+                        Spacer(Modifier.width(6.dp))
+                        IconAction(Icons.Filled.Delete, Ink3, "删除烘箱") { confirmDeleteOven = ov.id }
+                    }
+                }
+            }
+        }
+
         item { SectionHeader("客户", action = "＋ 添加", onAction = { showAddCustomer = true }) }
 
         item {
@@ -306,6 +341,60 @@ fun SettingsScreen(state: AppState, onOpenType: (String?) -> Unit, onOpenDiagnos
                 )
             }
         }
+    }
+
+    if (showAddOven) {
+        InputDialog(
+            title = "新增烘箱",
+            initial = "",
+            label = "烘箱名称",
+            onOk = { v ->
+                Repo.I.addOven(v)
+                showAddOven = false
+            },
+            onDismiss = { showAddOven = false },
+        )
+    }
+
+    renameOvenTarget?.let { id ->
+        val cur = state.ovenOf(id)?.name ?: ""
+        InputDialog(
+            title = "烘箱改名",
+            initial = cur,
+            label = "烘箱名称",
+            onOk = { v ->
+                Repo.I.renameOven(id, v)
+                renameOvenTarget = null
+            },
+            onDismiss = { renameOvenTarget = null },
+        )
+    }
+
+    confirmDeleteOven?.let { id ->
+        val b = state.bakeInOven(id)
+        AlertDialog(
+            onDismissRequest = { confirmDeleteOven = null },
+            title = { Text("删除这个烘箱？") },
+            text = {
+                Text(
+                    when {
+                        b != null -> "${state.ovenName(id)}里还放着样品，等它出炉后再删。"
+                        state.ovens.size <= 1 -> "至少要留一个烘箱。"
+                        else -> "删除后这个烘箱的计时记录不再显示，已出炉的记录会一起清掉。"
+                    }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        Repo.I.removeOven(id)
+                        confirmDeleteOven = null
+                    },
+                    enabled = b == null && state.ovens.size > 1,
+                ) { Text("删除", color = Danger) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDeleteOven = null }) { Text("取消") } },
+        )
     }
 
     if (showAddCustomer) {

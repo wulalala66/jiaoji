@@ -19,6 +19,13 @@ data class Settings(
 
 data class BakePreset(var tempC: Int = 140, var minutes: Int = 30)
 
+/** 烘箱：可以自己加（靠门 / 靠窗 / 二号炉…），同时只放一个样品 */
+data class Oven(
+    var id: String = "",
+    var name: String = "",
+    var colorIdx: Int = 0,
+)
+
 data class TestDef(
     var id: String = "",
     var name: String = "",
@@ -88,6 +95,7 @@ class AppState(
     var settings: Settings = Settings(),
     var types: MutableList<ProductType> = mutableListOf(),
     var customers: MutableList<String> = mutableListOf(),
+    var ovens: MutableList<Oven> = mutableListOf(),
     var sampling: MutableList<SamplingTask> = mutableListOf(),
     var samples: MutableList<Sample> = mutableListOf(),
     var bakes: MutableList<Bake> = mutableListOf(),
@@ -98,6 +106,11 @@ class AppState(
 
 object Defaults {
     private fun t(id: String, name: String, unit: String) = TestDef(id = id, name = name, unit = unit)
+
+    fun ovens(): MutableList<Oven> = mutableListOf(
+        Oven(id = "door", name = "靠门烘箱", colorIdx = 0),
+        Oven(id = "window", name = "靠窗烘箱", colorIdx = 1),
+    )
 
     fun state(): AppState {
         val base = ProductType(
@@ -126,6 +139,7 @@ object Defaults {
         return AppState(
             types = mutableListOf(base, weld, other),
             customers = mutableListOf("安徽万安"),
+            ovens = ovens(),
         )
     }
 }
@@ -188,7 +202,25 @@ fun weekdayCn(ts: Long): String {
     return names[c.get(Calendar.DAY_OF_WEEK) - 1]
 }
 
-fun ovenName(oven: String): String = if (oven == "window") "靠窗烘箱" else "靠门烘箱"
+fun legacyOvenName(oven: String): String = when (oven) {
+    "window" -> "靠窗烘箱"
+    "door" -> "靠门烘箱"
+    else -> "烘箱"
+}
+
+fun ovenName(oven: String): String = legacyOvenName(oven)
+
+fun AppState.ovenOf(id: String?): Oven? = if (id == null) null else ovens.firstOrNull { it.id == id }
+
+fun AppState.ovenName(id: String?): String = ovenOf(id)?.name ?: legacyOvenName(id ?: "")
+
+fun AppState.ovenColorIdx(id: String?): Int =
+    ovenOf(id)?.colorIdx ?: if (id == "window") 1 else 0
+
+/** 这个烘箱现在放着哪个样品（同时只允许一个） */
+fun AppState.bakeInOven(oven: String): Bake? = runningBakes(oven).firstOrNull()
+
+fun AppState.freeOvens(): List<Oven> = ovens.filter { bakeInOven(it.id) == null }
 
 // ---------------- JSON 编解码 ----------------
 
@@ -223,6 +255,13 @@ object Codec {
             }
         })
         o.put("customers", JSONArray().apply { s.customers.forEach { put(it) } })
+        o.put("ovens", JSONArray().apply {
+            s.ovens.forEach { ov ->
+                put(JSONObject().apply {
+                    put("id", ov.id); put("name", ov.name); put("colorIdx", ov.colorIdx)
+                })
+            }
+        })
         o.put("sampling", JSONArray().apply {
             s.sampling.forEach { t ->
                 put(JSONObject().apply {
@@ -322,6 +361,23 @@ object Codec {
             }
         }
 
+        o.optJSONArray("ovens")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val j = arr.optJSONObject(i) ?: continue
+                val id = j.optString("id", "").trim()
+                if (id.isEmpty()) continue
+                s.ovens.add(
+                    Oven(
+                        id = id,
+                        name = j.optString("name", ovenName(id)).ifBlank { ovenName(id) },
+                        colorIdx = j.optInt("colorIdx", i),
+                    )
+                )
+            }
+        }
+        // 老数据（只有 door / window 两个写死的）自动补上默认烘箱
+        if (s.ovens.isEmpty()) s.ovens = Defaults.ovens()
+
         o.optJSONArray("sampling")?.let { arr ->
             for (i in 0 until arr.length()) {
                 val j = arr.optJSONObject(i) ?: continue
@@ -381,7 +437,7 @@ object Codec {
                 s.bakes.add(
                     Bake(
                         id = j.optString("id", "b_$i"),
-                        oven = if (j.optString("oven", "door") == "window") "window" else "door",
+                        oven = j.optString("oven", "door").ifBlank { "door" },
                         sampleId = if (j.has("sampleId") && !j.isNull("sampleId")) j.optString("sampleId") else null,
                         label = j.optString("label", ""),
                         tempC = j.optInt("tempC", 140),

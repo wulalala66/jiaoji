@@ -104,13 +104,9 @@ fun Pill(
 }
 
 @Composable
-fun OvenPill(oven: String) {
-    val window = oven == "window"
-    Pill(
-        text = if (window) "靠窗烘箱" else "靠门烘箱",
-        fg = if (window) OvenWindow else OvenDoor,
-        bg = if (window) OvenWindowSoft else OvenDoorSoft,
-    )
+fun OvenPill(state: AppState, oven: String) {
+    val idx = state.ovenColorIdx(oven)
+    Pill(state.ovenName(oven), ovenAccent(idx), ovenSoft(idx))
 }
 
 /**
