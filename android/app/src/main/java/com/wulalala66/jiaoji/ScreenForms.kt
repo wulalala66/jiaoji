@@ -9,6 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -108,6 +110,7 @@ private fun ScreenScaffold(title: String, onBack: () -> Unit, content: @Composab
 /* ---------------- 新建取样任务 ---------------- */
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun AddTaskScreen(state: AppState, onBack: () -> Unit, onSaved: () -> Unit) {
     val ctx = LocalContext.current
     var raw by remember { mutableStateOf("") }
@@ -163,8 +166,11 @@ fun AddTaskScreen(state: AppState, onBack: () -> Unit, onSaved: () -> Unit) {
         AppCard {
             Text("客户", style = MaterialTheme.typography.labelMedium, color = Ink3)
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                state.customers.take(4).forEach { c ->
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                state.customers.take(6).forEach { c ->
                     ChoiceChip(c, customer == c) { customer = if (customer == c) "" else c }
                 }
             }
@@ -184,7 +190,10 @@ fun AddTaskScreen(state: AppState, onBack: () -> Unit, onSaved: () -> Unit) {
         AppCard {
             Text("胶的类型", style = MaterialTheme.typography.labelMedium, color = Ink3)
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 state.types.forEach { t ->
                     ChoiceChip(t.name, typeId == t.id) { typeId = t.id }
                 }
@@ -242,8 +251,11 @@ fun AddTaskScreen(state: AppState, onBack: () -> Unit, onSaved: () -> Unit) {
                 )
             }
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(8, 9, 10, 13, 14).forEach { h ->
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                listOf(8, 9, 10, 13, 14, 15).forEach { h ->
                     ChoiceChip("${h}:00", hourOf(dueAt) == h && minuteOf(dueAt) == 0) {
                         dueAt = Calendar.getInstance().apply {
                             timeInMillis = dueAt
