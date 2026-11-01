@@ -481,6 +481,15 @@ fun BakeFormScreen(
                 style = MaterialTheme.typography.titleMedium,
             )
         }
+        if (!ok) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "温度填 30~300℃，时长填 1~600 分钟",
+                style = MaterialTheme.typography.bodySmall,
+                color = Danger,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
         if (editing != null) {
             Spacer(Modifier.height(8.dp))
             TextButton(onClick = {
