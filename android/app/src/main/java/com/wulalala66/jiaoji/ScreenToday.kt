@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -385,11 +386,13 @@ fun SmallButton(text: String, filled: Boolean = false, onClick: () -> Unit) {
         modifier = Modifier
             .clip(CircleShape)
             .background(if (filled) Brand else SoftBg)
+            .sizeIn(minHeight = 40.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(),
             ) { onClick() }
-            .padding(horizontal = 13.dp, vertical = 9.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text,

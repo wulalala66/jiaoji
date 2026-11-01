@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -167,11 +168,13 @@ private fun SegItem(text: String, active: Boolean, onClick: () -> Unit) {
         modifier = Modifier
             .clip(CircleShape)
             .background(if (active) Brand else CardBg)
+            .sizeIn(minHeight = 40.dp)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(),
             ) { onClick() }
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
     ) {
         Text(
             text,

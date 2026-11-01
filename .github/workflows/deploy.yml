@@ -169,10 +169,15 @@ jobs:
           set -e
           APK=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
           echo "check $APK"
-          if unzip -l "$APK" | grep -q "res/raw/ring"; then
+          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          echo "aapt2: $AAPT2"
+          "$AAPT2" dump resources "$APK" > /tmp/res.txt || true
+          # 资源压缩会把 res/raw/ring.wav 改名成 res/xx.wav，所以按资源表查而不是按路径查
+          if grep -q "raw/ring" /tmp/res.txt; then
             echo "内置铃声已打进 APK ✓"
           else
-            echo "::error::res/raw/ring 被资源压缩删掉了，取不到系统闹铃的机型会彻底不响"
+            echo "::error::raw/ring 被资源压缩删掉了，取不到系统闹铃的机型会彻底不响"
+            grep -i "raw" /tmp/res.txt | head -5 || true
             exit 1
           fi
 
