@@ -217,7 +217,7 @@ private fun TimerCard(
             )
             Spacer(Modifier.weight(1f))
             if (due) {
-                Pill("超时 " + Fmt.dur((now - b.endAt).coerceAtLeast(0)), Color.White, Danger)
+                Pill("超时 " + Fmt.dur((((now - b.endAt).coerceAtLeast(0)) / 60000L).toInt()), Color.White, Danger)
             } else {
                 Pill("计时中", accent, if (window) OvenWindowSoft else OvenDoorSoft)
             }
@@ -262,6 +262,7 @@ private fun TimerCard(
     }
 }
 
+@Composable
 private fun ActionChip(text: String, filled: Boolean = false, onClick: () -> Unit) {
     Box(
         modifier = Modifier

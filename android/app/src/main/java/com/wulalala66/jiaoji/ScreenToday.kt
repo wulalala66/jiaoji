@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -75,11 +76,12 @@ fun TodayScreen(
                             Modifier
                                 .clip(CircleShape)
                                 .background(BrandSoft)
+                                .sizeIn(minHeight = 40.dp)
                                 .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(),
             ) { onOpenOven() }
-                                .padding(horizontal = 12.dp, vertical = 7.dp)
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
                         ) {
                             Text("烘烤 $running", color = BrandDark, style = MaterialTheme.typography.labelLarge)
                         }
@@ -278,10 +280,7 @@ private fun TaskCard(
 @Composable
 fun SampleRow(state: AppState, s: Sample, onOpen: (String) -> Unit, dim: Boolean = false) {
     val stats = statsOf(s)
-    AppCard(modifier = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(),
-            ) { onOpen(s.id) }) {
+    AppCard(onClick = { onOpen(s.id) }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -290,6 +289,8 @@ fun SampleRow(state: AppState, s: Sample, onOpen: (String) -> Unit, dim: Boolean
                         style = MaterialTheme.typography.titleMedium,
                         color = if (dim) Ink2 else Ink,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                     )
                     Spacer(Modifier.width(6.dp))
                     Pill(state.typeName(s.typeId), BrandDark, BrandSoft)
