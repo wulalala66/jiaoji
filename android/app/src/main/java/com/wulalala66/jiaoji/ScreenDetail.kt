@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ripple
@@ -38,7 +39,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -68,6 +71,7 @@ fun DetailScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     var confirmComplete by remember { mutableStateOf(false) }
     val focus = LocalFocusManager.current
+    val ctx = LocalContext.current
 
     LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 32.dp),
@@ -91,6 +95,13 @@ fun DetailScreen(
                     )
                 }
                 if (sample.status == "done") Pill("已完成", Ok, OkSoft)
+                IconAction(Icons.Filled.Share, Ink3, "分享本样品数据") {
+                    Share.text(
+                        ctx,
+                        "${sample.customer} ${state.typeName(sample.typeId)} ${sample.batchNo}",
+                        Share.reportOf(state, listOf(sample)),
+                    )
+                }
                 IconAction(Icons.Filled.Delete, Ink3, "删除样品") { confirmDelete = true }
             }
         }
@@ -152,6 +163,7 @@ fun DetailScreen(
             val t = sample.tests[index]
             TestRow(
                 test = t,
+                prev = state.lastValueFor(sample, t.name),
                 onValue = { Repo.I.setTestValue(sample.id, t.id, it) },
                 onSkip = { Repo.I.toggleTestSkip(sample.id, t.id) },
                 onRemove = { Repo.I.removeTest(sample.id, t.id) },
@@ -165,13 +177,10 @@ fun DetailScreen(
             AppCard {
                 Text("备注", style = MaterialTheme.typography.labelMedium, color = Ink3)
                 Spacer(Modifier.height(6.dp))
-                var note by remember(sample.id) { mutableStateOf(sample.note) }
+                val note = rememberLocalText(sample.note, sample.id, AppConfig.debounceMs) { Repo.I.setSampleNote(sample.id, it) }
                 OutlinedTextField(
-                    value = note,
-                    onValueChange = {
-                        note = it
-                        Repo.I.setSampleNote(sample.id, it)
-                    },
+                    value = note.value,
+                    onValueChange = { note.value = it },
                     placeholder = { Text("外观、异常、车间反馈…", color = Ink3, fontSize = 13.sp) },
                     modifier = Modifier.fillMaxWidth(),
                     minLines = 2,
@@ -280,12 +289,13 @@ fun fieldColors() = OutlinedTextFieldDefaults.colors(
 @Composable
 private fun TestRow(
     test: SampleTest,
+    prev: String? = null,
     onValue: (String) -> Unit,
     onSkip: () -> Unit,
     onRemove: () -> Unit,
     onNext: () -> Unit,
 ) {
-    var text by remember(test.id) { mutableStateOf(test.value) }
+    val text = rememberLocalText(test.value, test.id, AppConfig.debounceMs) { onValue(it) }
     val v = verdictOf(test)
     AppCard(
         borderColor = when (v) {
@@ -314,14 +324,15 @@ private fun TestRow(
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
-                value = if (test.skipped) "" else text,
-                onValueChange = {
-                    text = it
-                    onValue(it)
-                },
+                value = if (test.skipped) "" else text.value,
+                onValueChange = { text.value = it },
                 placeholder = {
                     Text(
-                        if (test.skipped) "已跳过" else "输入数值",
+                        when {
+                            test.skipped -> "已跳过"
+                            !prev.isNullOrBlank() -> "上批 $prev"
+                            else -> "输入数值"
+                        },
                         color = Ink3,
                         fontSize = 13.sp,
                     )
@@ -330,7 +341,11 @@ private fun TestRow(
                 enabled = !test.skipped,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
                 keyboardActions = KeyboardActions(onNext = { onNext() }),
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .onFocusChanged { st ->
+                        if (!st.isFocused && text.value != test.value) onValue(text.value)
+                    },
                 shape = MaterialTheme.shapes.small,
                 colors = fieldColors(),
                 textStyle = MaterialTheme.typography.bodyLarge,

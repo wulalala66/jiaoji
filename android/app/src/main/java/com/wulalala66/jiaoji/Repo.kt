@@ -81,12 +81,6 @@ class Repo private constructor() {
         block(next)
         _state.value = next
         write(c, next)
-        // 记录是哪个动作触发的写入：按钮点不动时，自检页能看到有没有「动作」进来
-        try {
-            val who = Throwable().stackTrace.getOrNull(2)?.methodName ?: "?"
-            AlarmLog.add(c, "动作 $who")
-        } catch (_: Throwable) {
-        }
         if (alarmSig(next) != before) AlarmScheduler.sync(c, next)
     }
 
@@ -361,8 +355,13 @@ class Repo private constructor() {
 
     // ---------------- 设置 ----------------
 
-    fun updateSettings(block: (Settings) -> Unit) {
-        mutate { s -> block(s.settings) }
+    /**
+     * 改设置。注意 block 必须「返回新的 Settings」（data class copy）——
+     * 之前写成 (Settings) -> Unit 会让 `it.copy(...)` 的返回值被丢掉，
+     * 表现就是设置页开关怎么点都没反应。
+     */
+    fun updateSettings(block: (Settings) -> Settings) {
+        mutate { s -> s.settings = block(s.settings) }
     }
 
     fun addCustomer(name: String) {

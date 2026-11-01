@@ -196,9 +196,11 @@ fun AddTaskScreen(state: AppState, onBack: () -> Unit, onSaved: () -> Unit) {
             Text("取样时间", style = MaterialTheme.typography.labelMedium, color = Ink3)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ChoiceChip("今天", false) { dueAt = withDay(dueAt, 0) }
-                ChoiceChip("明天", false) { dueAt = withDay(dueAt, 1) }
-                ChoiceChip("后天", false) { dueAt = withDay(dueAt, 2) }
+                val today0 = System.currentTimeMillis()
+                val off = dayOffsetOf(dueAt, today0)
+                ChoiceChip("今天", off == 0) { dueAt = withDay(dueAt, 0) }
+                ChoiceChip("明天", off == 1) { dueAt = withDay(dueAt, 1) }
+                ChoiceChip("后天", off == 2) { dueAt = withDay(dueAt, 2) }
             }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -231,10 +233,18 @@ fun AddTaskScreen(state: AppState, onBack: () -> Unit, onSaved: () -> Unit) {
                     Text(Fmt.hm(dueAt), color = Color.White, style = MaterialTheme.typography.titleMedium)
                 }
             }
+            if (dueAt <= System.currentTimeMillis()) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "这个时间已经过了，保存后会立刻提醒；如果是明早，先点「明天」",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Warn,
+                )
+            }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(8, 9, 10, 13, 14).forEach { h ->
-                    ChoiceChip("${h}:00", false) {
+                    ChoiceChip("${h}:00", hourOf(dueAt) == h && minuteOf(dueAt) == 0) {
                         dueAt = Calendar.getInstance().apply {
                             timeInMillis = dueAt
                             set(Calendar.HOUR_OF_DAY, h)

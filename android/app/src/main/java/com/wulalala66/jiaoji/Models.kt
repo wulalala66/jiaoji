@@ -410,6 +410,13 @@ object Codec {
 
 // ---------------- 选择器 ----------------
 
+/** 相对今天差几天（0=今天，1=明天…） */
+fun dayOffsetOf(ts: Long, now: Long = System.currentTimeMillis()): Int =
+    ((todayStart(ts) - todayStart(now)) / 86_400_000L).toInt()
+
+fun hourOf(ts: Long): Int = Calendar.getInstance().apply { timeInMillis = ts }.get(Calendar.HOUR_OF_DAY)
+fun minuteOf(ts: Long): Int = Calendar.getInstance().apply { timeInMillis = ts }.get(Calendar.MINUTE)
+
 fun AppState.typeOf(id: String?): ProductType? = types.firstOrNull { it.id == id }
 fun AppState.typeName(id: String?): String = typeOf(id)?.name ?: "其他"
 fun AppState.sampleOf(id: String?): Sample? = if (id == null) null else samples.firstOrNull { it.id == id }
@@ -419,9 +426,9 @@ fun AppState.pendingTasks(): List<SamplingTask> =
     sampling.filter { it.status == "pending" }.sortedBy { it.dueAt }
 
 fun AppState.pendingToday(now: Long = System.currentTimeMillis()): List<SamplingTask> {
-    val today = todayStart(now)
-    val tomorrow = today + 86_400_000L
-    return sampling.filter { it.status == "pending" && it.dueAt in today until tomorrow }.sortedBy { it.dueAt }
+    val tomorrow = todayStart(now) + 86_400_000L
+    // 包含以前没处理的（逾期的）任务：漏了一次取样，它不能从今天的列表里消失
+    return sampling.filter { it.status == "pending" && it.dueAt < tomorrow }.sortedBy { it.dueAt }
 }
 
 fun AppState.overdueTasks(now: Long = System.currentTimeMillis()): List<SamplingTask> =
@@ -451,6 +458,16 @@ fun AppState.todaySamples(now: Long = System.currentTimeMillis()): List<Sample> 
 }
 
 fun AppState.ovenBusy(oven: String): Boolean = runningBakes(oven).isNotEmpty()
+
+/** 同客户同类型上一批这个测试项的数值，用来做「上批多少」的对比 */
+fun AppState.lastValueFor(sample: Sample, testName: String): String? =
+    samples.asSequence()
+        .filter { it.id != sample.id && it.customer == sample.customer && it.typeId == sample.typeId }
+        .sortedByDescending { it.sampledAt }
+        .mapNotNull { sm ->
+            sm.tests.firstOrNull { it.name == testName && !it.skipped && it.value.isNotBlank() }?.value
+        }
+        .firstOrNull()
 
 // ---------------- 判定 ----------------
 

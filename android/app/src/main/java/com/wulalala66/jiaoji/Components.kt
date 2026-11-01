@@ -25,11 +25,16 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.ripple
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -375,3 +380,35 @@ fun MiniBar(fraction: Float, color: Color) {
     }
 }
 
+/** 输入落库的防抖时长；测试里会调成 0 让断言稳定 */
+object AppConfig {
+    var debounceMs: Long = 300
+}
+
+/**
+ * 输入框本地即时显示 + 停手一小会儿再落库。
+ *
+ * 直接用 store 里的值当输入框 value 会有两个问题：每敲一个字符就整库序列化一次
+ * （数据一多就卡、按钮像点不动），并且输入法组字会被打断。这里先在本地状态里
+ * 打字，停顿 [delayMs] 毫秒后提交；离开页面时把没提交的补上。
+ */
+@Composable
+fun rememberLocalText(
+    initial: String,
+    key: Any?,
+    delayMs: Long = AppConfig.debounceMs,
+    onCommit: (String) -> Unit,
+): MutableState<String> {
+    val st = remember(key) { mutableStateOf(initial) }
+    val latest = rememberUpdatedState(onCommit)
+    LaunchedEffect(key, st.value) {
+        if (st.value != initial) {
+            delay(delayMs)
+            latest.value(st.value)
+        }
+    }
+    DisposableEffect(key) {
+        onDispose { if (st.value != initial) latest.value(st.value) }
+    }
+    return st
+}

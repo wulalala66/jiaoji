@@ -40,6 +40,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,7 +62,13 @@ fun SettingsScreen(state: AppState, onOpenType: (String?) -> Unit, onOpenDiagnos
     var confirmClear by remember { mutableStateOf(false) }
     var confirmDeleteType by remember { mutableStateOf<String?>(null) }
     var alarmGranted by remember { mutableStateOf(AlarmScheduler.canExact(ctx)) }
-    val notifOn = remember { NotificationManagerCompat.from(ctx).areNotificationsEnabled() }
+    var notifOn by remember { mutableStateOf(NotificationManagerCompat.from(ctx).areNotificationsEnabled()) }
+
+    // 用户去系统设置里开了权限再回来，这里要重新读一次，不然一直显示「未开启」
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        notifOn = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+        alarmGranted = AlarmScheduler.canExact(ctx)
+    }
 
     LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 28.dp),
@@ -152,7 +160,6 @@ fun SettingsScreen(state: AppState, onOpenType: (String?) -> Unit, onOpenDiagnos
                                 val i = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
                                     .setData(Uri.parse("package:" + ctx.packageName))
                                 runCatching { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-                                alarmGranted = AlarmScheduler.canExact(ctx)
                             }
                         }
                     }
@@ -370,7 +377,16 @@ fun SettingsScreen(state: AppState, onOpenType: (String?) -> Unit, onOpenDiagnos
 
 @Composable
 private fun ToggleRow(title: String, sub: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { onChange(!checked) }
+            .padding(vertical = 6.dp),
+    ) {
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.bodyLarge, color = Ink)
             Text(sub, style = MaterialTheme.typography.bodySmall, color = Ink3)
