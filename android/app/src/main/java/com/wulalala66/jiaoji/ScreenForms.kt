@@ -290,6 +290,7 @@ fun AddTaskScreen(state: AppState, onBack: () -> Unit, onSaved: () -> Unit) {
 
 /* ---------------- 放进烘箱 ---------------- */
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BakeFormScreen(
     state: AppState,

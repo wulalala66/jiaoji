@@ -211,6 +211,7 @@ fun Root() {
             val due = state.dueBakes()
             if (due.isNotEmpty()) {
                 RingBanner(
+                    state = state,
                     bake = due.first(),
                     now = now,
                     modifier = Modifier
@@ -316,6 +317,7 @@ private fun RowScope.TabItem(label: String, icon: ImageVector, active: Boolean, 
 
 @Composable
 private fun RingBanner(
+    state: AppState,
     bake: Bake,
     now: Long,
     modifier: Modifier = Modifier,
