@@ -3,9 +3,12 @@ package com.wulalala66.jiaoji
 import android.content.Context
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -41,6 +44,8 @@ class FlowClickTest {
         sampleId = Repo.I.confirmSampled(task, false, "door", 140, 30) ?: ""
         bakeId = Repo.I.addBake("door", sampleId, "底涂胶", 140, 30, now - 6 * 60_000L)
         Repo.I.addBake("window", null, "焊缝胶", 160, 20, now - 26 * 60_000L)
+        // 另留一个「还没取样」的任务，用来测「已取样」按钮
+        Repo.I.addSampling("奇瑞", "weld", now + 25 * 60_000L, "下午班")
     }
 
     @Test
@@ -97,7 +102,7 @@ class FlowClickTest {
         assertNotNull("烘烤到点闹钟必须存在", at)
         val expect = now - 6 * 60_000L + 30 * 60_000L
         assertTrue("闹钟时间应等于出炉时间", abs((at ?: 0L) - expect) < 5_000L)
-        assertTrue("Robolectric 下应视为可精确调度", AlarmScheduler.canExact(ctx))
+        assertTrue("提前提醒也应排定", pending.containsKey("bp:$bakeId"))
     }
 
     @Test
@@ -125,6 +130,8 @@ class FlowClickTest {
             val s by Repo.I.state.collectAsState()
             JiaoJiTheme { SettingsScreen(s, {}, { open++ }) }
         }
+        rule.waitForIdle()
+        rule.onNode(hasScrollAction()).performScrollToNode(hasText("自检与诊断"))
         rule.waitForIdle()
         rule.onNodeWithText("自检与诊断").performClick()
         rule.waitForIdle()

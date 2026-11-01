@@ -172,13 +172,17 @@ object AlarmScheduler {
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        // 一律先按「闹钟」排：这是系统里最高优先级、Doze 也准时，
+        // 并且能让系统认可「这是闹钟」从而允许后台拉起响铃界面。
+        // 只有在系统明确拒绝（极少数 ROM 没实现 USE_EXACT_ALARM）时才退化。
         try {
-            if (canExact(ctx)) {
-                am.setAlarmClock(AlarmManager.AlarmClockInfo(item.at, showPi), pi)
-                AlarmLog.add(ctx, "排定 $key → ${Fmt.stamp(item.at)}（闹钟）")
-            } else {
+            am.setAlarmClock(AlarmManager.AlarmClockInfo(item.at, showPi), pi)
+            AlarmLog.add(ctx, "排定 $key → ${Fmt.stamp(item.at)}（系统闹钟）")
+        } catch (e: SecurityException) {
+            AlarmLog.add(ctx, "⚠ 闹钟权限被拒，改用非精确闹钟 $key")
+            try {
                 am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, item.at, pi)
-                AlarmLog.add(ctx, "排定 $key → ${Fmt.stamp(item.at)}（非精确，可能延迟）")
+            } catch (_: Throwable) {
             }
         } catch (e: Throwable) {
             AlarmLog.add(ctx, "✗ 排定失败 $key ${e.javaClass.simpleName}: ${e.message}")
