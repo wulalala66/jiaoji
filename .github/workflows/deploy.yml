@@ -164,6 +164,18 @@ jobs:
             --out /tmp/jiaoji-signed.apk /tmp/aligned.apk
           "$BT/apksigner" verify --print-certs /tmp/jiaoji-signed.apk
 
+      - name: Assert bundled ringtone survived shrinking
+        run: |
+          set -e
+          APK=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
+          echo "check $APK"
+          if unzip -l "$APK" | grep -q "res/raw/ring"; then
+            echo "内置铃声已打进 APK ✓"
+          else
+            echo "::error::res/raw/ring 被资源压缩删掉了，取不到系统闹铃的机型会彻底不响"
+            exit 1
+          fi
+
       - name: Collect APK
         run: |
           set -e
