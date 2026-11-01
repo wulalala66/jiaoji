@@ -140,4 +140,44 @@ class SettingsClickTest {
         val prev = Repo.I.state.value.lastValueFor(Repo.I.state.value.sampleOf(second)!!, t0.name)
         assertEquals("3.10", prev)
     }
+
+    /**
+     * 回归：进页面时就把「开始时间」定死，会导致填表花掉的几分钟被算进烘烤时长。
+     * 现在必须按「开始计时」那一刻取时间。
+     */
+    @Test
+    fun bakeStartsCountingFromSaveMoment() {
+        Repo.I.init(RuntimeEnvironment.getApplication())
+        Repo.I.clearAll()
+        val sampleId = Repo.I.createStandaloneSample("安徽万安", "base")!!
+        var saved = false
+        rule.setContent {
+            val s by Repo.I.state.collectAsState()
+            JiaoJiTheme {
+                BakeFormScreen(
+                    state = s,
+                    bakeId = null,
+                    sampleId = sampleId,
+                    defaultOven = "door",
+                    onBack = {},
+                    onSaved = { saved = true },
+                )
+            }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithText("140℃").performClick()
+        rule.onNodeWithText("30 分").performClick()
+        rule.waitForIdle()
+
+        // 模拟「填表、选烘箱花了一会儿」
+        Thread.sleep(900)
+        val before = System.currentTimeMillis()
+        rule.onNodeWithText("开始计时").performClick()
+        rule.waitForIdle()
+
+        assertTrue("应该保存成功", saved)
+        val b = Repo.I.state.value.bakes.last()
+        assertTrue("开始时间必须是按按钮那一刻，而不是进页面的时刻", b.startAt >= before - 100)
+        assertEquals(30L * 60_000L, b.endAt - b.startAt)
+    }
 }

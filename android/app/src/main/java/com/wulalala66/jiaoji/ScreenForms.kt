@@ -268,22 +268,9 @@ fun AddTaskScreen(state: AppState, onBack: () -> Unit, onSaved: () -> Unit) {
         }
 
         Spacer(Modifier.height(14.dp))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(MaterialTheme.shapes.medium)
-                .background(Brand)
-                .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(),
-            ) {
-                    Repo.I.addSampling(customer, typeId, dueAt, note)
-                    onSaved()
-                }
-                .padding(vertical = 14.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("保存提醒", color = Color.White, style = MaterialTheme.typography.titleMedium)
+        PrimaryButton("保存提醒") {
+            Repo.I.addSampling(customer, typeId, dueAt, note)
+            onSaved()
         }
         Spacer(Modifier.height(24.dp))
     }
@@ -312,7 +299,9 @@ fun BakeFormScreen(
     var minutes by remember {
         mutableStateOf((editing?.minutes ?: type?.bakes?.firstOrNull()?.minutes ?: 30).toString())
     }
-    var startAt by remember { mutableStateOf(editing?.startAt ?: System.currentTimeMillis()) }
+    // 0 = 现在开始（点按钮的那一刻才取时间，不能在进页面时就定死），1 = 指定时间
+    var startMode by remember { mutableStateOf(if (editing != null) 1 else 0) }
+    var pickedAt by remember { mutableStateOf(editing?.startAt ?: System.currentTimeMillis()) }
     var label by remember {
         mutableStateOf(
             editing?.label
@@ -322,7 +311,7 @@ fun BakeFormScreen(
 
     val tempInt = temp.toIntOrNull() ?: 0
     val minInt = minutes.toIntOrNull() ?: 0
-    val ok = tempInt in 20..400 && minInt in 1..1440
+    val ok = tempInt in 30..300 && minInt in 1..600
 
     ScreenScaffold(if (editing == null) "放进烘箱" else "修改计时", onBack) {
         if (sample != null) {
@@ -384,13 +373,13 @@ fun BakeFormScreen(
             }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(140, 150, 160, 180).forEach { t ->
+                listOf(140, 150, 170, 210).forEach { t ->
                     ChoiceChip("$t℃", tempInt == t) { temp = t.toString() }
                 }
             }
             Spacer(Modifier.height(6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(10, 20, 30, 45, 60).forEach { m ->
+                listOf(20, 25, 30, 45).forEach { m ->
                     ChoiceChip("$m 分", minInt == m) { minutes = m.toString() }
                 }
             }
@@ -398,47 +387,47 @@ fun BakeFormScreen(
 
         Spacer(Modifier.height(10.dp))
         AppCard {
-            Text("开始时间", style = MaterialTheme.typography.labelMedium, color = Ink3)
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .clip(MaterialTheme.shapes.small)
-                        .background(SoftBg)
-                        .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(),
-            ) {
-                            startAt = Calendar.getInstance().apply {
-                                timeInMillis = startAt
-                                set(Calendar.HOUR_OF_DAY, Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
-                                set(Calendar.MINUTE, Calendar.getInstance().get(Calendar.MINUTE))
-                                set(Calendar.SECOND, 0)
-                            }.timeInMillis
-                        }
-                        .padding(vertical = 12.dp),
-                    contentAlignment = Alignment.Center,
-                ) { Text("现在开始", color = Ink, style = MaterialTheme.typography.titleSmall) }
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .clip(MaterialTheme.shapes.small)
-                        .background(SoftBg)
-                        .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(),
-            ) { openTimePicker(ctx, startAt) { startAt = it } }
-                        .padding(vertical = 12.dp),
-                    contentAlignment = Alignment.Center,
-                ) { Text(Fmt.hm(startAt), color = Ink, style = MaterialTheme.typography.titleSmall) }
+            val now = rememberNow()
+            val startPreview = if (startMode == 0) now else pickedAt
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("开始时间", style = MaterialTheme.typography.labelMedium, color = Ink3)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    if (startMode == 0) "现在开始" else Fmt.hm(pickedAt),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Ink,
+                )
             }
             Spacer(Modifier.height(8.dp))
-            Text(
-                if (ok) "预计 ${Fmt.hm(startAt + minInt * 60_000L)} 出炉" else "温度或时长填一下",
-                style = MaterialTheme.typography.bodySmall,
-                color = Ink3,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ChoiceChip("现在开始", startMode == 0) { startMode = 0 }
+                ChoiceChip("选时间", startMode == 1) {
+                    startMode = 1
+                    openTimePicker(ctx, pickedAt) { pickedAt = it }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            if (ok) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("预计", style = MaterialTheme.typography.bodySmall, color = Ink3)
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        Fmt.hm(startPreview + minInt * 60_000L),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = Brand,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text("出炉", style = MaterialTheme.typography.bodySmall, color = Ink3)
+                    Spacer(Modifier.weight(1f))
+                    Pill("${minInt} 分钟", Brand, BrandSoft)
+                }
+            } else {
+                Text(
+                    "温度填 30~300℃，时长填 1~600 分钟",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Danger,
+                )
+            }
         }
 
         Spacer(Modifier.height(10.dp))
@@ -455,40 +444,19 @@ fun BakeFormScreen(
         }
 
         Spacer(Modifier.height(14.dp))
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .clip(MaterialTheme.shapes.medium)
-                .background(if (ok) Brand else Line)
-                .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(),
-                enabled = ok,
-            ) {
-                    if (editing == null) {
-                        Repo.I.addBake(oven, sample?.id, label.trim(), tempInt, minInt, startAt)
-                    } else {
-                        Repo.I.updateBake(editing.id, oven, label.trim(), tempInt, minInt, startAt, sample?.id)
-                    }
-                    onSaved()
-                }
-                .padding(vertical = 14.dp),
-            contentAlignment = Alignment.Center,
+        PrimaryButton(
+            text = if (editing == null) "开始计时" else "保存修改",
+            enabled = ok,
         ) {
-            Text(
-                if (editing == null) "开始计时" else "保存修改",
-                color = Color.White,
-                style = MaterialTheme.typography.titleMedium,
-            )
-        }
-        if (!ok) {
-            Spacer(Modifier.height(6.dp))
-            Text(
-                "温度填 30~300℃，时长填 1~600 分钟",
-                style = MaterialTheme.typography.bodySmall,
-                color = Danger,
-                modifier = Modifier.fillMaxWidth(),
-            )
+            // 「现在开始」必须在按下的这一瞬间取时间，
+            // 否则进页面到按按钮之间填表的那几分钟会被算进烘烤时长。
+            val start = if (startMode == 0) System.currentTimeMillis() else pickedAt
+            if (editing == null) {
+                Repo.I.addBake(oven, sample?.id, label.trim(), tempInt, minInt, start)
+            } else {
+                Repo.I.updateBake(editing.id, oven, label.trim(), tempInt, minInt, start, sample?.id)
+            }
+            onSaved()
         }
         if (editing != null) {
             Spacer(Modifier.height(8.dp))

@@ -208,20 +208,7 @@ fun DetailScreen(
                     Text("重新打开继续录入", color = Ink2, style = MaterialTheme.typography.titleSmall)
                 }
             } else {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(MaterialTheme.shapes.medium)
-                        .background(Brand)
-                        .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(),
-            ) { confirmComplete = true }
-                        .padding(vertical = 14.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("完成检测", color = Color.White, style = MaterialTheme.typography.titleMedium)
-                }
+                PrimaryButton("完成检测") { confirmComplete = true }
             }
         }
     }

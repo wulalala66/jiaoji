@@ -113,6 +113,38 @@ fun OvenPill(oven: String) {
     )
 }
 
+/**
+ * 页面底部的主按钮（保存 / 开始计时 / 完成检测），高度、圆角、禁用态统一在这里。
+ */
+@Composable
+fun PrimaryButton(
+    text: String,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .background(if (enabled) Brand else Line)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+                enabled = enabled,
+            ) { onClick() }
+            .padding(vertical = 15.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            color = if (enabled) Color.White else Ink3,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
 @Composable
 fun SectionHeader(
     title: String,

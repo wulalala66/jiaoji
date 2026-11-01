@@ -9,6 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -187,6 +189,7 @@ private fun OvenSwitch(text: String, active: Boolean, accent: Color, onClick: ()
 }
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun TimerCard(
     state: AppState,
     b: Bake,
@@ -207,21 +210,28 @@ private fun TimerCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             OvenPill(b.oven)
             Spacer(Modifier.width(6.dp))
-            Text("${b.tempC}℃ × ${Fmt.dur(b.minutes)}", style = MaterialTheme.typography.labelMedium, color = Ink2)
-            Spacer(Modifier.weight(1f))
             Text(
-                if (due) "到点了" else "计时中",
+                "${b.tempC}℃ × ${Fmt.dur(b.minutes)}",
                 style = MaterialTheme.typography.labelMedium,
-                color = if (due) Danger else accent,
+                color = Ink2,
             )
+            Spacer(Modifier.weight(1f))
+            if (due) {
+                Pill("超时 " + Fmt.dur((now - b.endAt).coerceAtLeast(0)), Color.White, Danger)
+            } else {
+                Pill("计时中", accent, if (window) OvenWindowSoft else OvenDoorSoft)
+            }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.Bottom) {
             CountdownText(left.coerceAtLeast(0), if (due) Danger else Ink, 34)
             Spacer(Modifier.weight(1f))
-            Text("预计 ${Fmt.hm(b.endAt)} 出炉", style = MaterialTheme.typography.bodySmall, color = Ink3)
+            Column(horizontalAlignment = Alignment.End) {
+                Text("预计", style = MaterialTheme.typography.labelSmall, color = Ink3)
+                Text(Fmt.hm(b.endAt), style = MaterialTheme.typography.titleMedium, color = Ink)
+            }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
         ProgressBar(fraction = fraction, color = if (due) Danger else accent, height = 6)
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -230,6 +240,7 @@ private fun TimerCard(
                 style = MaterialTheme.typography.titleSmall,
                 color = Ink2,
                 modifier = Modifier.weight(1f),
+                maxLines = 1,
             )
             val sid = b.sampleId
             if (sid != null) {
@@ -239,8 +250,11 @@ private fun TimerCard(
             SmallButton("删除") { onRemove() }
         }
         Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ActionChip("已取出", true) { Repo.I.markBakeDone(b.id) }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ActionChip(if (due) "已取出 ✓" else "取出", filled = true) { Repo.I.markBakeDone(b.id) }
             ActionChip("+5 分钟") { Repo.I.extendBake(b.id, 5) }
             ActionChip("延后 2 分") { Repo.I.snoozeBake(b.id, 2) }
             ActionChip("系统倒计时", onClick = onSysTimer)
@@ -248,7 +262,6 @@ private fun TimerCard(
     }
 }
 
-@Composable
 private fun ActionChip(text: String, filled: Boolean = false, onClick: () -> Unit) {
     Box(
         modifier = Modifier
