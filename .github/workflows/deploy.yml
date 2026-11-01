@@ -202,25 +202,19 @@ jobs:
           mv artifacts/apk/*.apk jiaoji.apk
           ls -lh
 
-      - name: Bump tag (auto increment)
+      - name: Tag from package.json
         id: tag
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -e
-          LAST=$(git tag --list 'v*' --sort=-v:refname | head -1)
+          # 版本号只在 package.json 里改一处：tag、versionName、Release 标题都跟着它
           VERSION=$(node -p "require('./package.json').version")
-          if [ -z "$LAST" ]; then
-            NEW_TAG="v${VERSION}"
-          else
-            CORE=${LAST#v}
-            MAJOR=${CORE%%.*}; REST=${CORE#*.}; MINOR=${REST%%.*}; PATCH=${REST#*.}
-            NEXT_PATCH="v${MAJOR}.${MINOR}.$((PATCH + 1))"
-            # 取 package.json 版本与「上个 tag 补丁号 +1」的较大者，便于手动跨大版本
-            NEW_TAG="v$(printf '%s\n%s\n' "$VERSION" "${NEXT_PATCH#v}" | sort -V | tail -1)"
-          fi
+          NEW_TAG="v${VERSION}"
           if git ls-remote --tags origin "refs/tags/${NEW_TAG}" | grep -q "$NEW_TAG"; then
-            echo "skipped=true" >> "$GITHUB_OUTPUT"; echo "Tag ${NEW_TAG} exists, skip release"; exit 0
+            echo "skipped=true" >> "$GITHUB_OUTPUT"
+            echo "Tag ${NEW_TAG} 已存在（package.json 版本没改），跳过发布"
+            exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
