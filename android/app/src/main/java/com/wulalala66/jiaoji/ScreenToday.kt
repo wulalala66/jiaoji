@@ -1,6 +1,7 @@
 package com.wulalala66.jiaoji
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -72,7 +74,10 @@ fun TodayScreen(
                             Modifier
                                 .clip(CircleShape)
                                 .background(BrandSoft)
-                                .clickable { onOpenOven() }
+                                .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { onOpenOven() }
                                 .padding(horizontal = 12.dp, vertical = 7.dp)
                         ) {
                             Text("烘烤 $running", color = BrandDark, style = MaterialTheme.typography.labelLarge)
@@ -179,7 +184,10 @@ private fun OvenTile(
         modifier = modifier
             .clip(MaterialTheme.shapes.medium)
             .background(soft)
-            .clickable { onClick() }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { onClick() }
             .padding(12.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -251,8 +259,11 @@ private fun TaskCard(
                     Modifier
                         .clip(CircleShape)
                         .background(Brand)
-                        .clickable { onSampled() }
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                        .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { onSampled() }
+                        .padding(horizontal = 16.dp, vertical = 11.dp)
                 ) {
                     Text("已取样", color = Color.White, style = MaterialTheme.typography.labelLarge)
                 }
@@ -266,7 +277,10 @@ private fun TaskCard(
 @Composable
 fun SampleRow(state: AppState, s: Sample, onOpen: (String) -> Unit, dim: Boolean = false) {
     val stats = statsOf(s)
-    AppCard(modifier = Modifier.clickable { onOpen(s.id) }) {
+    AppCard(modifier = Modifier.clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { onOpen(s.id) }) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -371,8 +385,11 @@ fun SmallButton(text: String, filled: Boolean = false, onClick: () -> Unit) {
         modifier = Modifier
             .clip(CircleShape)
             .background(if (filled) Brand else SoftBg)
-            .clickable { onClick() }
-            .padding(horizontal = 11.dp, vertical = 6.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { onClick() }
+            .padding(horizontal = 13.dp, vertical = 9.dp)
     ) {
         Text(
             text,

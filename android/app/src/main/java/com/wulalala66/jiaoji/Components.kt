@@ -16,9 +16,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.ripple
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -65,7 +70,13 @@ fun AppCard(
             .clip(MaterialTheme.shapes.medium)
             .background(color)
             .border(1.dp, borderColor, MaterialTheme.shapes.medium)
-            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .then(
+                if (onClick != null) Modifier.clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = ripple(),
+                    onClick = onClick,
+                ) else Modifier
+            )
             .padding(14.dp),
         content = content,
     )
@@ -115,15 +126,12 @@ fun SectionHeader(
         Spacer(Modifier.weight(1f))
         if (trailing != null) Text(trailing, style = MaterialTheme.typography.labelMedium, color = Ink3)
         if (action != null && onAction != null) {
-            Text(
-                action,
-                style = MaterialTheme.typography.labelLarge,
-                color = Brand,
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { onAction() }
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            )
+            TextButton(
+                onClick = onAction,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+            ) {
+                Text(action, style = MaterialTheme.typography.labelLarge, color = Brand)
+            }
         }
     }
 }
@@ -156,8 +164,12 @@ fun ChoiceChip(
             .clip(CircleShape)
             .background(if (selected) BrandSoft else CardBg)
             .border(1.dp, if (selected) Brand else Line, CircleShape)
-            .clickable { onClick() }
-            .padding(horizontal = 13.dp, vertical = 7.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+                onClick = onClick,
+            )
+            .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
         Text(
             text,
@@ -216,10 +228,14 @@ fun StepRow(
 fun StepButton(text: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(34.dp)
+            .size(40.dp)
             .clip(CircleShape)
             .background(SoftBg)
-            .clickable { onClick() },
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+                onClick = onClick,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Text(text, style = MaterialTheme.typography.titleLarge, color = Ink2)
@@ -233,14 +249,11 @@ fun IconAction(
     contentDescription: String = "",
     onClick: () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .size(36.dp)
-            .clip(CircleShape)
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center,
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(44.dp),
     ) {
-        Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(19.dp))
+        Icon(icon, contentDescription = contentDescription, tint = tint, modifier = Modifier.size(20.dp))
     }
 }
 

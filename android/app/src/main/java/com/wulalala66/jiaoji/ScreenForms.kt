@@ -4,6 +4,7 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -205,7 +207,10 @@ fun AddTaskScreen(state: AppState, onBack: () -> Unit, onSaved: () -> Unit) {
                         .weight(1f)
                         .clip(MaterialTheme.shapes.small)
                         .background(SoftBg)
-                        .clickable { openDatePicker(ctx, dueAt) { dueAt = it } }
+                        .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { openDatePicker(ctx, dueAt) { dueAt = it } }
                         .padding(vertical = 12.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -216,7 +221,10 @@ fun AddTaskScreen(state: AppState, onBack: () -> Unit, onSaved: () -> Unit) {
                         .weight(1f)
                         .clip(MaterialTheme.shapes.small)
                         .background(Brand)
-                        .clickable { openTimePicker(ctx, dueAt) { dueAt = it } }
+                        .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { openTimePicker(ctx, dueAt) { dueAt = it } }
                         .padding(vertical = 12.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -255,7 +263,10 @@ fun AddTaskScreen(state: AppState, onBack: () -> Unit, onSaved: () -> Unit) {
                 .fillMaxWidth()
                 .clip(MaterialTheme.shapes.medium)
                 .background(Brand)
-                .clickable {
+                .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) {
                     Repo.I.addSampling(customer, typeId, dueAt, note)
                     onSaved()
                 }
@@ -385,7 +396,10 @@ fun BakeFormScreen(
                         .weight(1f)
                         .clip(MaterialTheme.shapes.small)
                         .background(SoftBg)
-                        .clickable {
+                        .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) {
                             startAt = Calendar.getInstance().apply {
                                 timeInMillis = startAt
                                 set(Calendar.HOUR_OF_DAY, Calendar.getInstance().get(Calendar.HOUR_OF_DAY))
@@ -401,7 +415,10 @@ fun BakeFormScreen(
                         .weight(1f)
                         .clip(MaterialTheme.shapes.small)
                         .background(SoftBg)
-                        .clickable { openTimePicker(ctx, startAt) { startAt = it } }
+                        .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { openTimePicker(ctx, startAt) { startAt = it } }
                         .padding(vertical = 12.dp),
                     contentAlignment = Alignment.Center,
                 ) { Text(Fmt.hm(startAt), color = Ink, style = MaterialTheme.typography.titleSmall) }
@@ -433,7 +450,11 @@ fun BakeFormScreen(
                 .fillMaxWidth()
                 .clip(MaterialTheme.shapes.medium)
                 .background(if (ok) Brand else Line)
-                .clickable(enabled = ok) {
+                .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+                enabled = ok,
+            ) {
                     if (editing == null) {
                         Repo.I.addBake(oven, sample?.id, label.trim(), tempInt, minInt, startAt)
                     } else {
@@ -540,7 +561,11 @@ fun TypeEditorScreen(state: AppState, typeId: String?, onBack: () -> Unit) {
                 .fillMaxWidth()
                 .clip(MaterialTheme.shapes.medium)
                 .background(if (name.isBlank()) Line else Brand)
-                .clickable(enabled = name.isNotBlank()) {
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = ripple(),
+                    enabled = name.isNotBlank(),
+                ) {
                     Repo.I.upsertType(
                         ProductType(
                             id = existing?.id ?: ("t_" + Repo.uid()),

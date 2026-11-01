@@ -1,6 +1,7 @@
 package com.wulalala66.jiaoji
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +24,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -187,7 +189,10 @@ fun DetailScreen(
                         .fillMaxWidth()
                         .clip(MaterialTheme.shapes.medium)
                         .background(SoftBg)
-                        .clickable { Repo.I.reopenSample(sample.id) }
+                        .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { Repo.I.reopenSample(sample.id) }
                         .padding(vertical = 13.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -199,7 +204,10 @@ fun DetailScreen(
                         .fillMaxWidth()
                         .clip(MaterialTheme.shapes.medium)
                         .background(Brand)
-                        .clickable { confirmComplete = true }
+                        .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { confirmComplete = true }
                         .padding(vertical = 14.dp),
                     contentAlignment = Alignment.Center,
                 ) {

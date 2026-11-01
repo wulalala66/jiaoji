@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -49,7 +51,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 
 @Composable
-fun SettingsScreen(state: AppState, onOpenType: (String?) -> Unit) {
+fun SettingsScreen(state: AppState, onOpenType: (String?) -> Unit, onOpenDiagnostics: () -> Unit = {}) {
     val ctx = LocalContext.current
     val s = state.settings
     var showAddCustomer by remember { mutableStateOf(false) }
@@ -222,7 +224,10 @@ fun SettingsScreen(state: AppState, onOpenType: (String?) -> Unit) {
                             .weight(1f)
                             .clip(MaterialTheme.shapes.small)
                             .background(SoftBg)
-                            .clickable {
+                            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) {
                                 Share.json(
                                     ctx,
                                     "jiaoji-backup-${Fmt.md(System.currentTimeMillis())}.json",
@@ -237,7 +242,10 @@ fun SettingsScreen(state: AppState, onOpenType: (String?) -> Unit) {
                             .weight(1f)
                             .clip(MaterialTheme.shapes.small)
                             .background(SoftBg)
-                            .clickable { showImport = true }
+                            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { showImport = true }
                             .padding(vertical = 11.dp),
                         contentAlignment = Alignment.Center,
                     ) { Text("导入备份", color = Ink2, style = MaterialTheme.typography.titleSmall) }
@@ -249,13 +257,32 @@ fun SettingsScreen(state: AppState, onOpenType: (String?) -> Unit) {
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { confirmClear = true }
+                        .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { confirmClear = true }
                         .padding(vertical = 10.dp),
                 )
             }
         }
 
         item { SectionHeader("关于") }
+
+        item {
+            AppCard(onClick = onOpenDiagnostics) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("自检与诊断", style = MaterialTheme.typography.titleMedium, color = Ink)
+                    Spacer(Modifier.weight(1f))
+                    Text("点开", style = MaterialTheme.typography.bodySmall, color = Brand)
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "响铃不响、点了没反应？这里能看到权限状态、已排定的闹钟时间和最近的动作记录。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Ink3,
+                )
+            }
+        }
 
         item {
             AppCard {

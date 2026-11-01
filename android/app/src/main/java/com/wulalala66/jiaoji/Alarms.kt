@@ -1,5 +1,6 @@
 package com.wulalala66.jiaoji
 
+import android.app.ActivityOptions
 import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
@@ -10,16 +11,55 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+// ---------------- 日志（自检页用） ----------------
+
+object AlarmLog {
+    private const val PREF = "jiaoji_log"
+    private const val KEY = "lines"
+    private const val MAX = 120
+
+    fun add(ctx: Context, msg: String) {
+        try {
+            val p = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            val stamp = SimpleDateFormat("MM-dd HH:mm:ss", Locale.US).format(Date())
+            val lines = (p.getString(KEY, "") ?: "")
+                .split("\n").filter { it.isNotBlank() }.toMutableList()
+            lines.add("$stamp  $msg")
+            while (lines.size > MAX) lines.removeAt(0)
+            p.edit().putString(KEY, lines.joinToString("\n")).apply()
+        } catch (_: Throwable) {
+        }
+    }
+
+    fun all(ctx: Context): List<String> =
+        (ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(KEY, "") ?: "")
+            .split("\n").filter { it.isNotBlank() }.reversed()
+
+    fun clear(ctx: Context) {
+        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().remove(KEY).apply()
+    }
+}
 
 // ---------------- 调度 ----------------
 
@@ -27,18 +67,38 @@ private data class AlarmItem(val at: Long, val title: String, val body: String, 
 
 /**
  * 把「待办」翻译成系统闹钟：每个烘烤/取样各有一个提前提醒 + 一个到点闹钟。
- * 系统级 setExactAndAllowWhileIdle：锁屏、后台、App 被杀都能响。
+ *
+ * 用 AlarmManager.setAlarmClock：这是系统里优先级最高的闹钟类型，Doze/省电模式下也准时，
+ * 且不受「后台启动前台服务」限制（系统会认为这是用户可见的闹钟）。
+ * 同时声明 USE_EXACT_ALARM，安装即拥有精确闹钟能力，无需用户手动授权。
  */
 object AlarmScheduler {
 
     const val ACTION_ALARM = "com.wulalala66.jiaoji.ALARM"
     private const val PREF = "jiaoji_alarms"
     private const val EXTRA_PREFIX = "jiaoji://alarm/"
+    private const val SHOW_OFFSET = 900_000
 
     fun canExact(ctx: Context): Boolean {
         if (Build.VERSION.SDK_INT < 31) return true
-        val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        return am.canScheduleExactAlarms()
+        return try {
+            val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            am.canScheduleExactAlarms()
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
+    /** 自检页：当前已排定的闹钟（key -> 时间戳） */
+    fun pendingMap(ctx: Context): Map<String, Long> {
+        val out = LinkedHashMap<String, Long>()
+        try {
+            val raw = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString("map", "{}") ?: "{}"
+            val o = JSONObject(raw)
+            o.keys().forEach { k -> out[k] = o.optLong(k, 0L) }
+        } catch (_: Throwable) {
+        }
+        return out
     }
 
     fun sync(ctx: Context, s: AppState) {
@@ -52,11 +112,15 @@ object AlarmScheduler {
             val pre = b.preAlert ?: s.settings.preAlertMinutes
             if (pre > 0) {
                 val at = b.endAt - pre * 60_000L
-                if (at > now) desired["bp:${b.id}"] =
-                    AlarmItem(at, "还有 $pre 分钟出炉", "${b.label} · ${b.tempC}℃ · ${ovenName(b.oven)}", "pre")
+                if (at > now) desired["bp:${b.id}"] = AlarmItem(
+                    at, "还有 $pre 分钟出炉",
+                    "${b.label} · ${b.tempC}℃ · ${ovenName(b.oven)}", "pre"
+                )
             }
-            if (b.endAt > now) desired["b:${b.id}"] =
-                AlarmItem(b.endAt, "烘烤完成 · 该出炉了", "${b.label} · ${b.tempC}℃ ${b.minutes}分钟 · ${ovenName(b.oven)}", "due")
+            if (b.endAt > now) desired["b:${b.id}"] = AlarmItem(
+                b.endAt, "烘烤完成 · 该出炉了",
+                "${b.label} · ${b.tempC}℃ ${b.minutes}分钟 · ${ovenName(b.oven)}", "due"
+            )
         }
 
         s.sampling.forEach { t ->
@@ -64,53 +128,96 @@ object AlarmScheduler {
             val pre = t.preAlertMinutes ?: s.settings.preAlertMinutes
             if (pre > 0) {
                 val at = t.dueAt - pre * 60_000L
-                if (at > now) desired["sp:${t.id}"] =
-                    AlarmItem(at, "快到取样时间", "${Fmt.hm(t.dueAt)} ${t.customer} · ${s.typeName(t.typeId)}", "pre")
+                if (at > now) desired["sp:${t.id}"] = AlarmItem(
+                    at, "快到取样时间",
+                    "${Fmt.hm(t.dueAt)} ${t.customer} · ${s.typeName(t.typeId)}", "pre"
+                )
             }
-            if (t.dueAt > now && !t.dueAlarmed) desired["s:${t.id}"] =
-                AlarmItem(t.dueAt, "取样时间到", "${t.customer} · ${s.typeName(t.typeId)}", "due")
+            if (t.dueAt > now && !t.dueAlarmed) desired["s:${t.id}"] = AlarmItem(
+                t.dueAt, "取样时间到",
+                "${t.customer} · ${s.typeName(t.typeId)}", "due"
+            )
+        }
+
+        val prev = LinkedHashMap<String, Long>()
+        try {
+            val raw = prefs.getString("map", "{}") ?: "{}"
+            val o = JSONObject(raw)
+            o.keys().forEach { k -> prev[k] = o.optLong(k, 0L) }
+        } catch (_: Throwable) {
         }
 
         old.forEach { key -> if (!desired.containsKey(key)) cancel(ctx, key) }
-        desired.forEach { (key, item) -> schedule(ctx, key, item) }
-        prefs.edit().putStringSet("ids", desired.keys.toMutableSet()).apply()
+        // 时间没变就不重复排定，日志也干净
+        desired.forEach { (key, item) ->
+            if (prev[key] != item.at) schedule(ctx, key, item)
+        }
+
+        val map = JSONObject()
+        desired.forEach { (k, v) -> map.put(k, v.at) }
+        prefs.edit()
+            .putStringSet("ids", desired.keys.toMutableSet())
+            .putString("map", map.toString())
+            .apply()
     }
 
     private fun schedule(ctx: Context, key: String, item: AlarmItem) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        val intent = Intent(ctx, AlarmReceiver::class.java).apply {
-            action = ACTION_ALARM
-            data = Uri.parse(EXTRA_PREFIX + key)
-            putExtra("key", key)
-            putExtra("title", item.title)
-            putExtra("body", item.body)
-            putExtra("kind", item.kind)
-        }
-        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        val pi = PendingIntent.getBroadcast(ctx, key.hashCode(), intent, flags)
+        val pi = alarmPendingIntent(ctx, key, item.title, item.body, item.kind, PendingIntent.FLAG_UPDATE_CURRENT)
+        val showPi = PendingIntent.getActivity(
+            ctx, key.hashCode() + SHOW_OFFSET,
+            Intent(ctx, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra(MainActivity.EXTRA_TAB, "ovens")
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         try {
-            if (canExact(ctx)) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, item.at, pi)
-            else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, item.at, pi)
-        } catch (e: SecurityException) {
-            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, item.at, pi)
+            if (canExact(ctx)) {
+                am.setAlarmClock(AlarmManager.AlarmClockInfo(item.at, showPi), pi)
+                AlarmLog.add(ctx, "排定 $key → ${Fmt.stamp(item.at)}（闹钟）")
+            } else {
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, item.at, pi)
+                AlarmLog.add(ctx, "排定 $key → ${Fmt.stamp(item.at)}（非精确，可能延迟）")
+            }
+        } catch (e: Throwable) {
+            AlarmLog.add(ctx, "✗ 排定失败 $key ${e.javaClass.simpleName}: ${e.message}")
+            try {
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, item.at, pi)
+            } catch (_: Throwable) {
+            }
         }
     }
 
     fun cancel(ctx: Context, key: String) {
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val pi = alarmPendingIntent(ctx, key, "", "", "due", PendingIntent.FLAG_UPDATE_CURRENT)
+        try {
+            am.cancel(pi)
+            pi.cancel()
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun alarmPendingIntent(
+        ctx: Context, key: String, title: String, body: String, kind: String, flags: Int
+    ): PendingIntent {
         val intent = Intent(ctx, AlarmReceiver::class.java).apply {
             action = ACTION_ALARM
             data = Uri.parse(EXTRA_PREFIX + key)
+            putExtra("key", key)
+            putExtra("title", title)
+            putExtra("body", body)
+            putExtra("kind", kind)
         }
-        val pi = PendingIntent.getBroadcast(ctx, key.hashCode(), intent, PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE)
-        if (pi != null) {
-            am.cancel(pi)
-            pi.cancel()
-        }
+        return PendingIntent.getBroadcast(
+            ctx, key.hashCode(), intent,
+            flags or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 }
 
-// ---------------- 通知 / 铃声 ----------------
+// ---------------- 通知 / 全屏响铃 ----------------
 
 object RingNotif {
     const val CHANNEL = "jiaoji.alarm"
@@ -120,12 +227,14 @@ object RingNotif {
 
     fun ensureChannel(ctx: Context) {
         if (Build.VERSION.SDK_INT < 26) return
-        val nm = ctx.getSystemService(NotificationManager::class.java)
-        if (nm.getNotificationChannel(CHANNEL) != null) return
-        val ch = NotificationChannel(CHANNEL, "闹钟提醒", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "烘烤出炉 / 取样时间提醒"
-            setSound(null, null)
-            enableVibration(false)
+        val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
+        val old = nm.getNotificationChannel(CHANNEL)
+        if (old != null && old.importance >= NotificationManager.IMPORTANCE_HIGH) return
+        if (old != null) nm.deleteNotificationChannel(CHANNEL)
+        val ch = NotificationChannel(CHANNEL, "烘烤 / 取样提醒", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "到点响铃与全屏提醒"
+            setSound(null, null)          // 声音由 RingService 自己播，避免两套声音
+            enableVibration(false)        // 振动同理
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             setShowBadge(true)
         }
@@ -134,9 +243,9 @@ object RingNotif {
 
     fun build(ctx: Context, key: String, title: String, body: String, kind: String): Notification {
         ensureChannel(ctx)
+        val ring = RingActivity.intent(ctx, key, title, body, kind)
         val open = PendingIntent.getActivity(
-            ctx, 1,
-            Intent(ctx, MainActivity::class.java).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP },
+            ctx, 1, ring,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         fun action(action: String, label: String): NotificationCompat.Action {
@@ -172,7 +281,49 @@ object RingNotif {
         }
         return b.build()
     }
+
+    /**
+     * 后台直接拉起全屏响铃界面。
+     * Android 14 起后台启动 Activity 默认被拦，必须通过 PendingIntent + 显式
+     * 声明「允许后台启动」，这也是系统闹钟类 App 的标准做法。
+     */
+    fun launchRingActivity(ctx: Context, key: String, title: String, body: String, kind: String) {
+        val intent = RingActivity.intent(ctx, key, title, body, kind)
+        val opts = if (Build.VERSION.SDK_INT >= 34) {
+            ActivityOptions.makeBasic().apply {
+                pendingIntentCreatorBackgroundActivityStartMode =
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+                pendingIntentBackgroundActivityStartMode =
+                    ActivityOptions.MODE_BACKGROUND_ACTIVITY_START_ALLOWED
+            }.toBundle()
+        } else {
+            null
+        }
+        val flags = if (Build.VERSION.SDK_INT >= 34) {
+            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        }
+        try {
+            val pi = PendingIntent.getActivity(ctx, key.hashCode() + 500_000, intent, flags, opts)
+            if (Build.VERSION.SDK_INT >= 34) {
+                pi.send(ctx, 0, null, null, null, null, opts)
+            } else {
+                pi.send()
+            }
+            AlarmLog.add(ctx, "拉起响铃界面 $key")
+        } catch (e: Throwable) {
+            AlarmLog.add(ctx, "✗ 拉起界面失败 ${e.javaClass.simpleName}: ${e.message}")
+            try {
+                ctx.startActivity(intent)
+            } catch (e2: Throwable) {
+                AlarmLog.add(ctx, "✗ startActivity 兜底失败 ${e2.javaClass.simpleName}")
+            }
+        }
+    }
 }
+
+// ---------------- 到点处理 ----------------
 
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -180,121 +331,254 @@ class AlarmReceiver : BroadcastReceiver() {
         val title = intent.getStringExtra("title") ?: "提醒"
         val body = intent.getStringExtra("body") ?: ""
         val kind = intent.getStringExtra("kind") ?: "due"
+        AlarmLog.add(context, "⏰ 闹钟触发 $key ($kind)")
         RingNotif.ensureChannel(context)
-        val svc = Intent(context, RingService::class.java).apply {
-            putExtra("key", key)
-            putExtra("title", title)
-            putExtra("body", body)
-            putExtra("kind", kind)
-        }
+
+        // 1) 前台服务：即使界面拉不起来也保证有声音 + 振动
         try {
-            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(svc) else context.startService(svc)
-        } catch (e: Exception) {
-            // 极端情况下（系统限制前台服务）退化为普通通知
-            try {
-                NotificationManagerCompat.from(context).notify(RingNotif.ID, RingNotif.build(context, key, title, body, kind))
-            } catch (ignored: SecurityException) {
-            }
+            ContextCompat.startForegroundService(
+                context, RingService.intent(context, key, title, body, kind)
+            )
+            AlarmLog.add(context, "前台服务已请求")
+        } catch (e: Throwable) {
+            AlarmLog.add(context, "✗ 服务启动失败 ${e.javaClass.simpleName}: ${e.message}")
+        }
+
+        // 2) 全屏响铃界面（锁屏也能亮屏）
+        RingNotif.launchRingActivity(context, key, title, body, kind)
+
+        // 3) 通知兜底（用户可能把界面划掉，通知栏里还能操作）
+        try {
+            NotificationManagerCompat.from(context)
+                .notify(RingNotif.ID, RingNotif.build(context, key, title, body, kind))
+        } catch (e: Throwable) {
+            AlarmLog.add(context, "✗ 通知失败 ${e.javaClass.simpleName}")
         }
     }
 }
 
 class RingService : Service() {
 
+    companion object {
+        const val ACTION_START = "com.wulalala66.jiaoji.RING_START"
+
+        fun intent(ctx: Context, key: String, title: String, body: String, kind: String, autoStopMs: Int = 0): Intent =
+            Intent(ctx, RingService::class.java).apply {
+                action = ACTION_START
+                putExtra("key", key)
+                putExtra("title", title)
+                putExtra("body", body)
+                putExtra("kind", kind)
+                putExtra("autoStopMs", autoStopMs)
+            }
+    }
+
     private var player: MediaPlayer? = null
     private var vibrator: Vibrator? = null
+    private var wake: PowerManager.WakeLock? = null
+    private val handler = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val key = intent?.getStringExtra("key") ?: ""
-        val title = intent?.getStringExtra("title") ?: "提醒"
-        val body = intent?.getStringExtra("body") ?: ""
-        val kind = intent?.getStringExtra("kind") ?: "due"
+        if (intent == null) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        val key = intent.getStringExtra("key") ?: ""
+        val title = intent.getStringExtra("title") ?: "提醒"
+        val body = intent.getStringExtra("body") ?: ""
+        val kind = intent.getStringExtra("kind") ?: "due"
+        val autoStop = intent.getIntExtra("autoStopMs", 0)
+
+        try {
+            ServiceCompat.startForeground(
+                this, RingNotif.ID, RingNotif.build(this, key, title, body, kind),
+                if (Build.VERSION.SDK_INT >= 29) android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK else 0
+            )
+            AlarmLog.add(this, "服务前台化成功 $key")
+        } catch (e: Throwable) {
+            AlarmLog.add(this, "✗ startForeground 失败 ${e.javaClass.simpleName}: ${e.message}")
+        }
+
+        acquireWake()
         val s = Repo.read(this)
-        startForeground(RingNotif.ID, RingNotif.build(this, key, title, body, kind))
+        val testing = kind == "test"
+        if (s.settings.sound || testing) {
+            startSound(kind == "due" || testing)
+        } else {
+            AlarmLog.add(this, "声音开关是关的，跳过铃声")
+        }
+        if ((kind == "due" || testing) && (s.settings.vibrate || testing)) startVibrate()
 
-        if (kind == "due" && s.settings.sound) startSound(RingtoneManager.TYPE_ALARM, true)
-        else if (kind != "due" && s.settings.sound) startSound(RingtoneManager.TYPE_NOTIFICATION, false)
-
-        if (kind == "due" && s.settings.vibrate) startVibrate()
+        if (autoStop > 0) {
+            handler.postDelayed({ stopSelf() }, autoStop.toLong())
+        }
         return START_NOT_STICKY
     }
 
-    private fun startSound(type: Int, loop: Boolean) {
-        releasePlayer()
+    private fun acquireWake() {
         try {
-            val uri = RingtoneManager.getDefaultUri(type) ?: return
-            player = MediaPlayer().apply {
-                setAudioAttributes(
+            if (wake?.isHeld == true) return
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "jiaoji:ring").apply {
+                setReferenceCounted(false)
+                acquire(10 * 60_000L)
+            }
+            AlarmLog.add(this, "持有唤醒锁")
+        } catch (e: Throwable) {
+            AlarmLog.add(this, "✗ 唤醒锁失败 ${e.javaClass.simpleName}")
+        }
+    }
+
+    private fun startSound(loud: Boolean) {
+        releasePlayer()
+        val candidates = ArrayList<Uri>()
+        fun safeAdd(uri: Uri?) {
+            if (uri != null && !candidates.contains(uri)) candidates.add(uri)
+        }
+        try {
+            if (loud) {
+                safeAdd(RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM))
+                safeAdd(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM))
+                safeAdd(RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_RINGTONE))
+                safeAdd(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE))
+            } else {
+                safeAdd(RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_NOTIFICATION))
+                safeAdd(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
+            }
+        } catch (e: Throwable) {
+            AlarmLog.add(this, "读取系统铃声失败 ${e.javaClass.simpleName}")
+        }
+        // 兜底：内置提示音，保证一定有声音
+        safeAdd(Uri.parse("android.resource://$packageName/${R.raw.ring}"))
+
+        bumpVolume()
+
+        for (uri in candidates) {
+            try {
+                val mp = MediaPlayer()
+                mp.setAudioAttributes(
                     AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setUsage(if (loud) AudioAttributes.USAGE_ALARM else AudioAttributes.USAGE_NOTIFICATION_EVENT)
                         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                         .build()
                 )
-                setDataSource(this@RingService, uri)
-                isLooping = loop
-                prepare()
-                start()
+                mp.setDataSource(this, uri)
+                mp.isLooping = true
+                mp.setVolume(1f, 1f)
+                mp.setOnErrorListener { _, what, extra ->
+                    AlarmLog.add(this, "✗ 播放器错误 $what/$extra $uri")
+                    true
+                }
+                // 同步 prepare：本地铃声/内置资源都很快，失败能立刻换下一个候选
+                mp.prepare()
+                mp.start()
+                player = mp
+                AlarmLog.add(this, "▶ 正在播放 $uri")
+                return
+            } catch (e: Throwable) {
+                AlarmLog.add(this, "✗ 铃声不可用 ${e.javaClass.simpleName} $uri")
+                releasePlayer()
             }
-        } catch (e: Exception) {
-            releasePlayer()
+        }
+        AlarmLog.add(this, "✗ 没有任何可用铃声")
+    }
+
+    private fun bumpVolume() {
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+            val cur = am.getStreamVolume(AudioManager.STREAM_ALARM)
+            val target = (max * 0.7f).toInt().coerceAtLeast(1)
+            if (cur < target) {
+                am.setStreamVolume(AudioManager.STREAM_ALARM, target, 0)
+                AlarmLog.add(this, "闹钟音量 $cur → $target（最大 $max）")
+            } else {
+                AlarmLog.add(this, "闹钟音量 $cur/$max 正常")
+            }
+        } catch (e: Throwable) {
+            AlarmLog.add(this, "✗ 音量检查失败 ${e.javaClass.simpleName}")
         }
     }
 
     private fun startVibrate() {
-        val v = if (Build.VERSION.SDK_INT >= 31) {
-            val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            vm.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        }
-        vibrator = v
-        val pattern = longArrayOf(0, 600, 400, 600, 900)
-        if (Build.VERSION.SDK_INT >= 26) {
-            v.vibrate(VibrationEffect.createWaveform(pattern, 0))
-        } else {
-            @Suppress("DEPRECATION")
-            v.vibrate(pattern, 0)
+        try {
+            val v = if (Build.VERSION.SDK_INT >= 31) {
+                val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                vm.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+            vibrator = v
+            val pattern = longArrayOf(0, 600, 400, 600, 900)
+            if (Build.VERSION.SDK_INT >= 26) {
+                v.vibrate(VibrationEffect.createWaveform(pattern, 0))
+            } else {
+                @Suppress("DEPRECATION")
+                v.vibrate(pattern, 0)
+            }
+        } catch (e: Throwable) {
+            AlarmLog.add(this, "✗ 振动失败 ${e.javaClass.simpleName}")
         }
     }
 
     private fun releasePlayer() {
         try {
             player?.stop()
-        } catch (ignored: Exception) {
+        } catch (_: Throwable) {
         }
         try {
             player?.release()
-        } catch (ignored: Exception) {
+        } catch (_: Throwable) {
         }
         player = null
     }
 
     override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
         releasePlayer()
         try {
             vibrator?.cancel()
-        } catch (ignored: Exception) {
+        } catch (_: Throwable) {
         }
         vibrator = null
+        try {
+            if (wake?.isHeld == true) wake?.release()
+        } catch (_: Throwable) {
+        }
+        wake = null
         super.onDestroy()
     }
 }
 
-class RingActionReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        val key = intent.getStringExtra("key") ?: ""
-        val action = intent.action ?: ""
-        context.stopService(Intent(context, RingService::class.java))
+// ---------------- 响铃后的动作（通知按钮 / 全屏界面共用） ----------------
+
+object RingActions {
+
+    fun done(ctx: Context, key: String) {
+        stopRinging(ctx)
+        if (key.isBlank()) return
+        AlarmLog.add(ctx, "已取出 $key")
+        Repo.editStatic(ctx) { s -> applyDone(s, key) }
+    }
+
+    fun snooze(ctx: Context, key: String, minutes: Int = 2) {
+        stopRinging(ctx)
+        if (key.isBlank()) return
+        AlarmLog.add(ctx, "延后 $minutes 分钟 $key")
+        Repo.editStatic(ctx) { s -> applySnooze(s, key, minutes) }
+    }
+
+    fun stopRinging(ctx: Context) {
         try {
-            NotificationManagerCompat.from(context).cancel(RingNotif.ID)
-        } catch (ignored: Exception) {
+            ctx.stopService(Intent(ctx, RingService::class.java))
+        } catch (_: Throwable) {
         }
-        when (action) {
-            RingNotif.ACTION_DONE -> Repo.editStatic(context) { s -> applyDone(s, key) }
-            RingNotif.ACTION_SNOOZE -> Repo.editStatic(context) { s -> applySnooze(s, key) }
+        try {
+            NotificationManagerCompat.from(ctx).cancel(RingNotif.ID)
+        } catch (_: Throwable) {
         }
     }
 
@@ -310,16 +594,16 @@ class RingActionReceiver : BroadcastReceiver() {
         }
     }
 
-    private fun applySnooze(s: AppState, key: String) {
+    private fun applySnooze(s: AppState, key: String, minutes: Int) {
         val (kind, id) = split(key) ?: return
         when (kind) {
             "b" -> s.bakes.firstOrNull { it.id == id }?.apply {
-                endAt += 2 * 60_000L
-                minutes += 2
+                endAt += minutes * 60_000L
+                this.minutes += minutes
                 status = "running"
             }
             "s" -> s.sampling.firstOrNull { it.id == id }?.apply {
-                dueAt += 2 * 60_000L
+                dueAt += minutes * 60_000L
                 dueAlarmed = false
             }
             else -> Unit
@@ -333,8 +617,20 @@ class RingActionReceiver : BroadcastReceiver() {
     }
 }
 
+class RingActionReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val key = intent.getStringExtra("key") ?: ""
+        when (intent.action) {
+            RingNotif.ACTION_DONE -> RingActions.done(context, key)
+            RingNotif.ACTION_SNOOZE -> RingActions.snooze(context, key, 2)
+            else -> RingActions.stopRinging(context)
+        }
+    }
+}
+
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        AlarmLog.add(context, "开机/时间变化，重排闹钟")
         val s = Repo.read(context)
         AlarmScheduler.sync(context, s)
     }

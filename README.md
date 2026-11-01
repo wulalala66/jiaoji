@@ -23,10 +23,24 @@
 
 ## 提醒机制（重要）
 
-- 提醒走系统 `AlarmManager`（精确闹钟）+ 前台服务播放闹铃，**不依赖 App 在前台**，锁屏 / 清后台 / 重启手机（自动重挂）都会响。
-- Android 12+ 需要「闹钟和提醒」权限：设置页会显示状态，点一下跳到系统开关。
-- Android 13+ 需要通知权限，首次打开会申请。
-- 国产 ROM（小米 / 华为 / OPPO / vivo 等）建议在系统设置里给「胶记」打开 **自启动**、**后台运行不受限制**，否则系统可能压掉闹钟。
+到点响铃按系统闹钟的做法实现，**不依赖 App 在前台**：锁屏、清后台、重启手机（自动重挂）都会响。
+
+1. **排定**：用 `AlarmManager.setAlarmClock`（系统里优先级最高的闹钟类型，Doze 省电模式下也准时），并声明 `USE_EXACT_ALARM`，装好即拥有精确闹钟能力。
+2. **触发**：`AlarmReceiver` 同时做三件事——启动前台服务播铃（`MediaPlayer` + `USAGE_ALARM`，先把闹钟音量抬到 70%，持有唤醒锁）、拉起**全屏响铃界面**（Android 14+ 用 `PendingIntent` 的 `MODE_BACKGROUND_ACTIVITY_START_ALLOWED`，锁屏也能亮屏）、发一条高优先级通知兜底。
+3. **铃声明亮双音**：优先用系统闹铃，取不到就用内置的 `res/raw/ring.wav`，保证一定有声音。
+4. **全屏响铃界面**只有三个按钮：已取出 / 延后 2 分钟 / 只关掉声音，10 分钟没人处理自动停。
+
+权限：Android 13+ 通知权限（首次打开会申请）；Android 14+ 「全屏提醒」；国产 ROM（小米 / 华为 / OPPO / vivo 等）请给「胶记」打开 **自启动** 和 **后台运行不受限制**。
+
+### 响铃不响 / 点了没反应？
+
+设置页 → **自检与诊断**，一页看全：
+
+- 「点击自测」：点一下数字 +1 说明触摸正常，数字不动说明触摸没传进来；
+- 权限状态（通知 / 精确闹钟 / 全屏提醒 / 后台不受限制），缺哪个点「去开启」直接跳系统设置；
+- 已排定的闹钟清单（key → 具体时间），没排上就是这里空的；
+- 「响铃 5 秒」「全屏响铃页」两个按钮可以直接验证铃声和界面；
+- 最近的动作与闹钟记录：每次写库都会记一条「动作 xxx」，闹钟触发/排定/失败也都会记，`✗` 开头的行是失败原因。
 
 ## 技术与构建
 
@@ -35,7 +49,7 @@
 - 本地只做开发（`npm run dev` 起静态服务看网页版；App 在 Android Studio 里跑），**构建与发布全部在 GitHub Actions**：push 到 main 即
   1. `web`：Vite 构建 → 打包 dist → ed25519 固定密钥签名 → 部署 GitHub Pages；
   2. `android`：Gradle 8.10.2 + AGP 8.7.2 构建 release APK → 用固定 keystore 通过 `apksigner` 签名并自验；
-     构建前先跑 **Robolectric 冒烟测试**（在 JVM 上真实组合每一屏，12 个用例），挡住「一打开就崩」这类问题；
+     构建前先跑 **Robolectric 测试**（在 JVM 上真实组合每一屏 + 真点按钮，19 个用例），挡住「一打开就崩」「按钮点不动」这类问题；
   3. `release`：递增 tag（v1.0.0 → v1.0.1 …）→ 创建 Release，附 APK、网页产物、签名、SHA256SUMS。
 
 ### 验证 Release
@@ -67,8 +81,11 @@ android/                         原生 App
     ScreenRecords.kt             记录（筛选 / 搜索 / 导出）
     ScreenSettings.kt            设置（提醒 / 类型 / 客户 / 备份）
     ScreenForms.kt               添加提醒 / 烘烤 / 类型编辑 / 已取样弹窗
+    RingActivity.kt              全屏响铃界面（锁屏也亮屏）
+    ScreenDiagnostics.kt         自检与诊断（权限 / 闹钟 / 日志 / 点击自测）
     Components.kt Theme.kt Share.kt MainActivity.kt App.kt
 
+android/app/src/test/            Robolectric 测试（每屏冒烟 + 点击链路 + 闹钟排定）
 index.html  css/  js/  public/   网页版（PWA）
 .github/workflows/deploy.yml     构建 + 签名 + Release + Pages
 ```

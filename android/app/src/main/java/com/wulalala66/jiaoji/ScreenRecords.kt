@@ -1,6 +1,7 @@
 package com.wulalala66.jiaoji
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -165,7 +167,10 @@ private fun SegItem(text: String, active: Boolean, onClick: () -> Unit) {
         modifier = Modifier
             .clip(CircleShape)
             .background(if (active) Brand else CardBg)
-            .clickable { onClick() }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { onClick() }
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         Text(
@@ -184,7 +189,10 @@ private fun RowScope.WideButton(text: String, onClick: () -> Unit) {
             .weight(1f)
             .clip(MaterialTheme.shapes.medium)
             .background(SoftBg)
-            .clickable { onClick() }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { onClick() }
             .padding(vertical = 13.dp),
         contentAlignment = Alignment.Center,
     ) {

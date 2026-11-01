@@ -81,6 +81,12 @@ class Repo private constructor() {
         block(next)
         _state.value = next
         write(c, next)
+        // 记录是哪个动作触发的写入：按钮点不动时，自检页能看到有没有「动作」进来
+        try {
+            val who = Throwable().stackTrace.getOrNull(2)?.methodName ?: "?"
+            AlarmLog.add(c, "动作 $who")
+        } catch (_: Throwable) {
+        }
         if (alarmSig(next) != before) AlarmScheduler.sync(c, next)
     }
 

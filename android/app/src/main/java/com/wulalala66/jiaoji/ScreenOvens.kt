@@ -4,6 +4,7 @@ import android.provider.AlarmClock
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ripple
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -77,7 +79,10 @@ fun OvensScreen(
                     .fillMaxWidth()
                     .clip(MaterialTheme.shapes.medium)
                     .background(accent)
-                    .clickable { onNewBake(oven) }
+                    .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { onNewBake(oven) }
                     .padding(vertical = 13.dp),
                 contentAlignment = Alignment.Center,
             ) {
@@ -166,7 +171,10 @@ private fun OvenSwitch(text: String, active: Boolean, accent: Color, onClick: ()
         modifier = Modifier
             .clip(CircleShape)
             .background(if (active) accent else CardBg)
-            .clickable { onClick() }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { onClick() }
             .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         Text(
@@ -245,7 +253,10 @@ private fun ActionChip(text: String, filled: Boolean = false, onClick: () -> Uni
         modifier = Modifier
             .clip(CircleShape)
             .background(if (filled) Brand else SoftBg)
-            .clickable { onClick() }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { onClick() }
             .padding(horizontal = 12.dp, vertical = 7.dp)
     ) {
         Text(

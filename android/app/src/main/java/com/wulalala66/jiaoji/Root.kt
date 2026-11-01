@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -64,6 +65,7 @@ sealed interface Screen {
     data object AddTask : Screen
     data class BakeForm(val bakeId: String? = null, val sampleId: String? = null, val oven: String = "door") : Screen
     data class TypeEditor(val typeId: String? = null) : Screen
+    data object Diagnostics : Screen
 }
 
 fun Context.findActivity(): Activity? {
@@ -82,6 +84,17 @@ fun Root() {
     val ctx = LocalContext.current
     var screen by remember { mutableStateOf<Screen>(Screen.Today) }
     var sampledTaskId by remember { mutableStateOf<String?>(null) }
+
+    // 从闹钟通知点进来时直接跳到烘箱页
+    val pendingTab by MainActivity.pendingTab.collectAsState()
+    LaunchedEffect(pendingTab) {
+        when (pendingTab) {
+            "ovens" -> { screen = Screen.Ovens; MainActivity.pendingTab.value = null }
+            "today" -> { screen = Screen.Today; MainActivity.pendingTab.value = null }
+            "records" -> { screen = Screen.Records; MainActivity.pendingTab.value = null }
+            "settings" -> { screen = Screen.Settings; MainActivity.pendingTab.value = null }
+        }
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -153,6 +166,7 @@ fun Root() {
                 is Screen.Settings -> SettingsScreen(
                     state = state,
                     onOpenType = { screen = Screen.TypeEditor(it) },
+                    onOpenDiagnostics = { screen = Screen.Diagnostics },
                 )
 
                 is Screen.Detail -> DetailScreen(
@@ -181,6 +195,11 @@ fun Root() {
                 is Screen.TypeEditor -> TypeEditorScreen(
                     state = state,
                     typeId = s.typeId,
+                    onBack = { screen = Screen.Settings },
+                )
+
+                is Screen.Diagnostics -> DiagnosticsScreen(
+                    state = state,
                     onBack = { screen = Screen.Settings },
                 )
             }
@@ -240,15 +259,21 @@ private fun BottomBar(current: Screen, onSelect: (Screen) -> Unit, onAdd: () -> 
             TabItem("今天", Icons.Filled.DateRange, current is Screen.Today) { onSelect(Screen.Today) }
             TabItem("烘箱", Icons.Filled.Notifications, current is Screen.Ovens) { onSelect(Screen.Ovens) }
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                Box(
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .background(Brand)
-                        .clickable { onAdd() },
-                    contentAlignment = Alignment.Center,
+                Surface(
+                    onClick = onAdd,
+                    modifier = Modifier.size(46.dp),
+                    shape = CircleShape,
+                    color = Brand,
+                    shadowElevation = 3.dp,
                 ) {
-                    Icon(Icons.Filled.Add, contentDescription = "添加", tint = Color.White, modifier = Modifier.size(26.dp))
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.Add,
+                            contentDescription = "新建",
+                            tint = Color.White,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
                 }
             }
             TabItem("记录", Icons.Filled.List, current is Screen.Records) { onSelect(Screen.Records) }
@@ -259,26 +284,29 @@ private fun BottomBar(current: Screen, onSelect: (Screen) -> Unit, onAdd: () -> 
 
 @Composable
 private fun RowScope.TabItem(label: String, icon: ImageVector, active: Boolean, onClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .weight(1f)
-            .clickable { onClick() }
-            .padding(vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.weight(1f).fillMaxHeight(),
+        color = Color.Transparent,
     ) {
-        Icon(
-            icon,
-            contentDescription = label,
-            tint = if (active) Brand else Ink3,
-            modifier = Modifier.size(22.dp),
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            label,
-            fontSize = 10.5.sp,
-            color = if (active) Brand else Ink3,
-        )
+        Column(
+            modifier = Modifier.fillMaxSize().padding(vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = label,
+                tint = if (active) Brand else Ink3,
+                modifier = Modifier.size(22.dp),
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                label,
+                fontSize = 10.5.sp,
+                color = if (active) Brand else Ink3,
+            )
+        }
     }
 }
 
@@ -314,16 +342,18 @@ private fun RingBanner(
                         fontSize = 12.sp,
                     )
                 }
-                Text(
-                    "打开",
-                    color = Color.White,
-                    fontSize = 13.sp,
-                    modifier = Modifier
-                        .clip(CircleShape)
-                        .background(Color(0x33FFFFFF))
-                        .clickable { onOpen() }
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                )
+                Surface(
+                    onClick = onOpen,
+                    shape = CircleShape,
+                    color = Color(0x33FFFFFF),
+                ) {
+                    Text(
+                        "打开",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                    )
+                }
             }
             Spacer(Modifier.height(10.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -336,13 +366,17 @@ private fun RingBanner(
 
 @Composable
 private fun BannerButton(text: String, bg: Color, fg: Color, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .clip(CircleShape)
-            .background(bg)
-            .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 7.dp)
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = bg,
     ) {
-        Text(text, color = fg, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+        Text(
+            text,
+            color = fg,
+            fontSize = 13.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+        )
     }
 }
