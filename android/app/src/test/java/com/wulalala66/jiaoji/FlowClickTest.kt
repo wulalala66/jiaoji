@@ -73,11 +73,11 @@ class FlowClickTest {
             }
         }
         rule.waitForIdle()
-        // 按钮文案跟着烘箱名字走，这里按当前第一台烘箱拼出来，顺便验证自定义名字
-        val first = Repo.I.state.value.ovens.first()
-        rule.onNodeWithText("＋ 放一个样品进" + first.name).performClick()
+        // 按钮只出现在空烘箱上（门烘箱已被 seed 占用），文案跟着烘箱名字走
+        val free = Repo.I.state.value.freeOvens().first()
+        rule.onNodeWithText("＋ 放一个样品进" + free.name).performClick()
         rule.waitForIdle()
-        assertEquals(first.id, picked)
+        assertEquals(free.id, picked)
     }
 
     @Test
