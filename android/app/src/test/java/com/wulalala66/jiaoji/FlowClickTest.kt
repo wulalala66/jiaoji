@@ -73,9 +73,11 @@ class FlowClickTest {
             }
         }
         rule.waitForIdle()
-        rule.onNodeWithText("＋ 在靠门烘箱放一个样品").performClick()
+        // 按钮文案跟着烘箱名字走，这里按当前第一台烘箱拼出来，顺便验证自定义名字
+        val first = Repo.I.state.value.ovens.first()
+        rule.onNodeWithText("＋ 放一个样品进" + first.name).performClick()
         rule.waitForIdle()
-        assertEquals("door", picked)
+        assertEquals(first.id, picked)
     }
 
     @Test

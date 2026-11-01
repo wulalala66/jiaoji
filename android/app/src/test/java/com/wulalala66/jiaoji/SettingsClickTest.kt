@@ -189,6 +189,9 @@ class SettingsClickTest {
         val a = Repo.I.createStandaloneSample("安徽万安", "base")!!
         val b = Repo.I.createStandaloneSample("奇瑞", "weld")!!
         Repo.I.addBake("door", a, "底涂胶", 140, 30, System.currentTimeMillis())
+        // 至少要有第二台空闲烘箱可换（同一沙箱里别的测试类可能改过烘箱列表）
+        if (Repo.I.state.value.ovens.size < 2) Repo.I.addOven("备用烘箱")
+        val other = Repo.I.state.value.ovens.first { it.id != "door" }
 
         var saved = false
         rule.setContent {
@@ -213,14 +216,14 @@ class SettingsClickTest {
         assertFalse("占用时点了也不该保存", saved)
         assertEquals(1, Repo.I.state.value.bakes.size)
 
-        // 换成靠窗烘箱 → 提示消失，可以开始计时
-        rule.onNodeWithText("靠窗烘箱").performClick()
+        // 换成另一台空烘箱 → 提示消失，可以开始计时
+        rule.onNodeWithText(other.name).performClick()
         rule.waitForIdle()
         rule.onNodeWithText("一个烘箱同时只能放一个", substring = true).assertDoesNotExist()
         rule.onNodeWithText("开始计时").performClick()
         rule.waitForIdle()
         assertTrue(saved)
         assertEquals(2, Repo.I.state.value.bakes.size)
-        assertEquals("window", Repo.I.state.value.bakes.last().oven)
+        assertEquals(other.id, Repo.I.state.value.bakes.last().oven)
     }
 }

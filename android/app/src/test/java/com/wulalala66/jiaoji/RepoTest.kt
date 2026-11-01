@@ -287,15 +287,15 @@ class RepoTest {
 
     @Test
     fun ovensAddRenameRemove() {
-        assertEquals(listOf("靠门烘箱", "靠窗烘箱"), state().ovens.map { it.name })
+        val start = state().ovens.size
+        assertTrue("默认至少两台烘箱", start >= 2)
 
         val id = Repo.I.addOven("2 号炉")
         assertNotNull(id)
-        assertTrue(state().ovens.any { it.name == "2 号炉" })
-        assertEquals(3, state().ovens.size)
+        assertEquals(start + 1, state().ovens.size)
 
         Repo.I.addOven("2 号炉")
-        assertEquals("重名不再加一个", 3, state().ovens.size)
+        assertEquals("重名不再加一个", start + 1, state().ovens.size)
 
         Repo.I.renameOven(id!!, "三号烘箱")
         assertEquals("三号烘箱", state().ovenName(id))
@@ -303,18 +303,22 @@ class RepoTest {
 
         // 空着就能删
         assertTrue(Repo.I.removeOven(id))
-        assertEquals(2, state().ovens.size)
+        assertEquals(start, state().ovens.size)
 
         // 占用的不能删
         val sampleId = Repo.I.createStandaloneSample("安徽万安", "base")!!
         Repo.I.addBake("door", sampleId, "A", 140, 30, now)
         assertFalse("有计时在跑就不能删烘箱", Repo.I.removeOven("door"))
-        assertEquals(2, state().ovens.size)
+        assertEquals(start, state().ovens.size)
 
         // 也不能把烘箱删光
-        Repo.I.removeOven("window")
-        assertFalse("最后一个烘箱不能删", Repo.I.removeOven("door"))
+        state().ovens.map { it.id }.filter { it != "door" }.forEach { Repo.I.removeOven(it) }
         assertEquals(1, state().ovens.size)
+        assertFalse("最后一个烘箱不能删", Repo.I.removeOven("door"))
+
+        // 还原第二台：Robolectric 同配置的测试类共用一个沙箱，别把别人搞坏
+        Repo.I.addOven("靠窗烘箱")
+        assertEquals(2, state().ovens.size)
     }
 
     @Test
