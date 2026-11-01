@@ -276,8 +276,9 @@ object RingNotif {
             .setAutoCancel(false)
             .setShowWhen(true)
             .setContentIntent(open)
-            .setFullScreenIntent(open, true)
+        // 只有「到点」才全屏接管；提前提醒是横幅通知 + 提示音，别打断手上的活
         if (kind == "due") {
+            b.setFullScreenIntent(open, true)
             b.addAction(action(ACTION_DONE, "已取出"))
             b.addAction(action(ACTION_SNOOZE, "延后 2 分钟"))
         } else {
@@ -348,8 +349,10 @@ class AlarmReceiver : BroadcastReceiver() {
             AlarmLog.add(context, "✗ 服务启动失败 ${e.javaClass.simpleName}: ${e.message}")
         }
 
-        // 2) 全屏响铃界面（锁屏也能亮屏）
-        RingNotif.launchRingActivity(context, key, title, body, kind)
+        // 2) 全屏响铃界面（锁屏也能亮屏）——只有到点才拉起，提前提醒只弹通知
+        if (kind == "due" || kind == "test") {
+            RingNotif.launchRingActivity(context, key, title, body, kind)
+        }
 
         // 3) 通知兜底（用户可能把界面划掉，通知栏里还能操作）
         try {

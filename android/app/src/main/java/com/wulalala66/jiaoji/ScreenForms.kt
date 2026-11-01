@@ -751,6 +751,14 @@ fun SampledDialog(
                             ChoiceChip(if (taken) "${ov.name} 占用" else ov.name, oven == ov.id) { oven = ov.id }
                         }
                     }
+                    if (state.bakeInOven(oven) != null) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            "这台烘箱还放着样品，先不设计时；之后可以在样品页里放进去。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Warn,
+                        )
+                    }
                     Spacer(Modifier.height(10.dp))
                     if (hasPreset) {
                         FlowRow(

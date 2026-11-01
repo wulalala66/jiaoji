@@ -397,7 +397,11 @@ class Repo private constructor() {
     fun removeOven(id: String): Boolean {
         if (I.state.value.ovens.size <= 1) return false
         if (I.state.value.bakeInOven(id) != null) return false
-        mutate { s -> s.ovens.removeAll { it.id == id } }
+        mutate { s ->
+            s.ovens.removeAll { it.id == id }
+            // 这台烘箱的历史计时一起清掉，否则会留下找不到烘箱的记录
+            s.bakes.removeAll { it.oven == id }
+        }
         return true
     }
 
