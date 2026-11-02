@@ -146,6 +146,7 @@ class RingActivity : ComponentActivity() {
     }
 
     override fun onResume() {
+        RingPeek.hide()
         super.onResume()
         alive = true
         // Activity 真的到前台了，就不需要悬浮窗兜底了

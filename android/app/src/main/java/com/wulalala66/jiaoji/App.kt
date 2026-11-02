@@ -83,6 +83,7 @@ class App : Application() {
             AlarmLog.add(this, "✗ 服务启动失败 ${e.javaClass.simpleName}")
         }
         // 交给系统去弹全屏页（最稳），同时自己再拉一次
+        RingPeek.show(this)
         RingNotif.postFullScreen(this, key, title, body, "due")
         RingLaunch.fire(this, key, title, body, "due")
         try {

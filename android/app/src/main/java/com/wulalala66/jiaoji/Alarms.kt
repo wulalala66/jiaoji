@@ -410,6 +410,8 @@ class AlarmReceiver : BroadcastReceiver() {
 
         // 2) 全屏响铃界面（锁屏也能亮屏）——到点 / 测试 / 权限申请才拉起，提前提醒只弹通知
         if (kind == "due" || kind == "test" || kind == "perm") {
+            // 先挂透明窗口：Android 12+ 后台启动 Activity 要求进程此刻有可见窗口
+            RingPeek.show(context)
             RingLaunch.fire(context, key, title, body, kind)
         }
 
