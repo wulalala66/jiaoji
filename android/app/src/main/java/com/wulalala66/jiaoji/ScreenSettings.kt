@@ -1,6 +1,8 @@
 package com.wulalala66.jiaoji
 
 import android.app.AlarmManager
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -38,6 +40,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.lifecycle.Lifecycle
@@ -49,6 +53,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 
@@ -64,6 +69,7 @@ fun SettingsScreen(
     var showAddOven by remember { mutableStateOf(false) }
     var renameOvenTarget by remember { mutableStateOf<String?>(null) }
     var confirmDeleteOven by remember { mutableStateOf<String?>(null) }
+    var askPopup by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<String?>(null) }
     var showImport by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
@@ -213,13 +219,19 @@ fun SettingsScreen(
                 ) { openBattery(ctx) }
                 if (OemHelper.isColorOs || OemHelper.isMiui || OemHelper.isVivo || OemHelper.isEmui) {
                     Spacer(Modifier.height(10.dp))
-                    PermRow(
-                        title = "允许后台弹出界面",
-                        sub = "${OemHelper.romName()}：不开这个，黑屏时响铃页弹不出来",
-                        bad = true,
-                        action = "去开启",
-                        always = true,
-                    ) { OemHelper.openBackgroundPopup(ctx) }
+                    Column {
+                        Text("允许后台弹出界面", style = MaterialTheme.typography.titleSmall, color = Danger)
+                        Text(
+                            "${OemHelper.romName()}：不开这个，黑屏时只有声音，响铃页弹不出来。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Ink3,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SmallButton("主动申请", true) { askPopup = true }
+                            SmallButton("手动去开") { OemHelper.openBackgroundPopup(ctx) }
+                        }
+                    }
                     Spacer(Modifier.height(10.dp))
                     PermRow(
                         title = "自启动 / 后台活动",
@@ -412,6 +424,10 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+
+    if (askPopup) {
+        PopupRequestDialog(onDismiss = { askPopup = false })
     }
 
     if (showAddOven) {
@@ -683,4 +699,125 @@ private fun ignoreBattOk(ctx: android.content.Context): Boolean = try {
     pm.isIgnoringBatteryOptimizations(ctx.packageName)
 } catch (_: Throwable) {
     true
+}
+
+/**
+ * 主动申请「后台弹出界面」。
+ *
+ * ColorOS 只会在「胶记在后台、又要弹界面的那一刻」问用户要不要给这个权限，
+ * 没有可以主动调起的授权页，所以这里就制造那一刻：排一个 10 秒后的闹钟，
+ * 让用户按 Home 键离开 App，到点系统就会弹「允许后台弹出界面？」。
+ * 弹完回来看日志里有没有「响铃页到前台」，有就是给了。
+ */
+@Composable
+private fun PopupRequestDialog(onDismiss: () -> Unit) {
+    val ctx = LocalContext.current
+    var step by remember { mutableIntStateOf(0) }
+    var baseline by remember { mutableIntStateOf(0) }
+    var waited by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(step) {
+        if (step != 1) return@LaunchedEffect
+        var t = 0
+        while (t < 40) {
+            delay(1000)
+            t++
+            waited = t
+            val hits = AlarmLog.all(ctx).count { it.contains("响铃页到前台") }
+            if (hits > baseline) {
+                step = 2
+                return@LaunchedEffect
+            }
+        }
+        step = 3
+    }
+
+    val path = "设置 → 应用管理 → 胶记 → 权限；找不到就去 权限与隐私 → 权限管理 → 特殊权限 → 后台弹出界面 → 找到「胶记」打开"
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                when (step) {
+                    0 -> "主动申请「后台弹出界面」"
+                    1 -> "现在按 Home 键回桌面"
+                    2 -> "成功了"
+                    else -> "没等到响铃页"
+                },
+            )
+        },
+        text = {
+            Column {
+                when (step) {
+                    0 -> {
+                        Text(
+                            "系统只会在「胶记在后台、又要弹界面的那一刻」问你要这个权限，没有可以直接调起的授权页。所以这样做：",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Ink,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "1. 点下面「开始」，10 秒后胶记会自己响一次\n" +
+                                "2. 马上按 Home 键回桌面（别锁屏、别划掉胶记）\n" +
+                                "3. 到点系统会弹「允许胶记后台弹出界面？」，点允许\n" +
+                                "4. 响完点回胶记，这里会告诉你结果",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Ink2,
+                        )
+                    }
+                    1 -> {
+                        Text(
+                            "还剩 ${(10 - waited).coerceAtLeast(0)} 秒。现在按 Home 键回桌面等着，别锁屏。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Brand,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "弹出来的框点「允许」。响完再点回胶记看结果（最多等 40 秒）。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Ink3,
+                        )
+                    }
+                    2 -> {
+                        Text(
+                            "响铃页已经弹到前台了，说明权限生效。以后黑屏到点会亮屏并弹出响铃页。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Ok,
+                        )
+                    }
+                    else -> {
+                        Text(
+                            "40 秒内没看到响铃页。可能是系统没弹框（那就手动开），也可能是「锁屏显示」和「悬浮窗」还没给。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Danger,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(path, style = MaterialTheme.typography.bodySmall, color = Ink2)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            when (step) {
+                0 -> TextButton(onClick = {
+                    baseline = AlarmLog.all(ctx).count { it.contains("响铃页到前台") }
+                    waited = 0
+                    AlarmScheduler.scheduleTest(ctx, 10)
+                    step = 1
+                }) { Text("开始（10 秒后响）") }
+                1 -> TextButton(onClick = { step = 0 }) { Text("重来") }
+                2 -> TextButton(onClick = onDismiss) { Text("好") }
+                else -> TextButton(onClick = {
+                    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                    cm?.setPrimaryClip(ClipData.newPlainText("后台弹出界面路径", path))
+                }) { Text("复制路径") }
+            }
+        },
+        dismissButton = {
+            when (step) {
+                3 -> TextButton(onClick = { OemHelper.openBackgroundPopup(ctx) }) { Text("手动去开") }
+                else -> TextButton(onClick = onDismiss) { Text("关闭") }
+            }
+        },
+    )
 }

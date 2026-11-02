@@ -96,6 +96,35 @@ object OemHelper {
         val pkg = ctx.packageName
         if (isColorOs) {
             val list = listOf(
+                // 单应用权限页（ColorOS 12+ 最接近「后台弹出界面」的一页）
+                Intent().apply {
+                    component = ComponentName(
+                        "com.coloros.safecenter",
+                        "com.coloros.safecenter.permission.singlepage.PermissionSinglePageActivity",
+                    )
+                    putExtra("package_name", pkg)
+                },
+                Intent().apply {
+                    component = ComponentName(
+                        "com.oplus.safecenter",
+                        "com.oplus.safecenter.permission.singlepage.PermissionSinglePageActivity",
+                    )
+                    putExtra("package_name", pkg)
+                },
+                // 特殊权限列表（后台弹出界面 / 悬浮窗都在里面）
+                Intent().apply {
+                    component = ComponentName(
+                        "com.coloros.safecenter",
+                        "com.coloros.safecenter.special.SpecialPermissionActivity",
+                    )
+                },
+                Intent().apply {
+                    component = ComponentName(
+                        "com.oplus.safecenter",
+                        "com.oplus.safecenter.special.SpecialPermissionActivity",
+                    )
+                },
+                // 悬浮窗 / 后台弹出界面列表
                 Intent().apply {
                     component = ComponentName(
                         "com.coloros.safecenter",

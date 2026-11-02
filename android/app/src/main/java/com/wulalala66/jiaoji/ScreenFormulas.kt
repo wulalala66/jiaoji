@@ -223,7 +223,8 @@ fun FormulaEditorScreen(state: AppState, formulaId: String, onBack: () -> Unit) 
             Spacer(Modifier.height(4.dp))
 
             AppCard {
-                f.items.forEach { item ->
+                f.items.forEachIndexed { i, item ->
+                    if (i > 0) ThinDivider()
                     key(item.id) { FormulaItemRow(f, item, total) }
                 }
                 if (f.items.isEmpty()) {
@@ -350,53 +351,56 @@ private fun FormulaItemRow(f: Formula, item: FormulaItem, total: Double) {
         }
     }
 
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.padding(vertical = 3.dp),
-    ) {
-        OutlinedTextField(
-            value = nameState.value,
-            onValueChange = { nameState.value = it },
-            placeholder = { Text("原料名", style = MaterialTheme.typography.bodySmall, color = Ink3) },
-            singleLine = true,
-            modifier = Modifier.weight(1.5f),
-            textStyle = MaterialTheme.typography.bodyMedium,
-            colors = fieldColors(),
-        )
-        NumField(
-            value = gText,
-            onValueChange = { s ->
-                gText = s
-                val v = s.trim().toDoubleOrNull()
-                if (v != null && v >= 0) {
-                    val pct = if (total > 0) v / total * 100.0 else 0.0
-                    pWritten = pct
-                    pText = f2(pct)
-                    Repo.I.updateFormulaItem(f.id, item.id, percent = pct)
-                }
-            },
-            label = "g",
-            modifier = Modifier.weight(0.9f),
-            imeNext = false,
-        )
-        NumField(
-            value = pText,
-            onValueChange = { s ->
-                pText = s
-                val v = s.trim().toDoubleOrNull()
-                if (v != null && v >= 0) {
-                    pWritten = v
-                    gText = f1(v * total / 100.0)
-                    Repo.I.updateFormulaItem(f.id, item.id, percent = v)
-                }
-            },
-            label = "%",
-            modifier = Modifier.weight(0.9f),
-            imeNext = false,
-        )
-        IconAction(Icons.Filled.Delete, Danger, "删掉这行") {
-            Repo.I.removeFormulaItem(f.id, item.id)
+    Column(modifier = Modifier.padding(vertical = 6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = nameState.value,
+                onValueChange = { nameState.value = it },
+                placeholder = { Text("原料名", style = MaterialTheme.typography.bodySmall, color = Ink3) },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                textStyle = MaterialTheme.typography.bodyMedium,
+                colors = fieldColors(),
+            )
+            IconAction(Icons.Filled.Delete, Danger, "删掉这行") {
+                Repo.I.removeFormulaItem(f.id, item.id)
+            }
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            NumField(
+                value = gText,
+                onValueChange = { s ->
+                    gText = s
+                    val v = s.trim().toDoubleOrNull()
+                    if (v != null && v >= 0) {
+                        val pct = if (total > 0) v / total * 100.0 else 0.0
+                        pWritten = pct
+                        pText = f2(pct)
+                        Repo.I.updateFormulaItem(f.id, item.id, percent = pct)
+                    }
+                },
+                label = "克数",
+                modifier = Modifier.weight(1f),
+                suffix = "g",
+                imeNext = true,
+            )
+            NumField(
+                value = pText,
+                onValueChange = { s ->
+                    pText = s
+                    val v = s.trim().toDoubleOrNull()
+                    if (v != null && v >= 0) {
+                        pWritten = v
+                        gText = f1(v * total / 100.0)
+                        Repo.I.updateFormulaItem(f.id, item.id, percent = v)
+                    }
+                },
+                label = "百分比",
+                modifier = Modifier.weight(1f),
+                suffix = "%",
+                imeNext = false,
+            )
         }
     }
 }

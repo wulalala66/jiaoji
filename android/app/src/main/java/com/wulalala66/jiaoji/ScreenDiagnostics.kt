@@ -156,6 +156,11 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
                 ThinDivider()
                 CheckRow("自启动", false, "去开启") { OemHelper.openAutoStart(ctx) }
                 ThinDivider()
+                KeyValue(
+                    "上次响铃页",
+                    if (AlarmLog.all(ctx).any { it.contains("响铃页到前台") }) "成功过" else "没成功过",
+                )
+                ThinDivider()
                 KeyValue("响铃开关", if (state.settings.sound) "开" else "关")
                 KeyValue("振动开关", if (state.settings.vibrate) "开" else "关")
                 KeyValue("闹钟音量", volume)
