@@ -1,6 +1,6 @@
 {
   "name": "jiaoji",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "private": true,
   "type": "module",
   "description": "胶记 — 胶粘剂实验室工作台：取样提醒、烘烤计时与检测记录",

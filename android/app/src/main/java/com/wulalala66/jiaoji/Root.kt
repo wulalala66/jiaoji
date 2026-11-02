@@ -41,6 +41,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -90,14 +91,34 @@ fun Root() {
     var screen by remember { mutableStateOf<Screen>(Screen.Today) }
     var sampledTaskId by remember { mutableStateOf<String?>(null) }
 
+    // 返回栈：返回键回到上一级，而不是一律回主页
+    val history = remember { mutableStateListOf<Screen>() }
+
+    fun goTo(to: Screen) {
+        if (to == screen) return
+        history.add(screen)
+        if (history.size > 16) history.removeAt(0)
+        screen = to
+    }
+
+    fun goBack() {
+        screen = if (history.isNotEmpty()) history.removeAt(history.size - 1) else Screen.Today
+    }
+
+    // 切底部 tab = 重新起一个根页面，把返回栈清掉
+    fun goTab(to: Screen) {
+        history.clear()
+        screen = to
+    }
+
     // 从闹钟通知点进来时直接跳到烘箱页
     val pendingTab by MainActivity.pendingTab.collectAsState()
     LaunchedEffect(pendingTab) {
         when (pendingTab) {
-            "ovens" -> { screen = Screen.Ovens; MainActivity.pendingTab.value = null }
-            "today" -> { screen = Screen.Today; MainActivity.pendingTab.value = null }
-            "records" -> { screen = Screen.Records; MainActivity.pendingTab.value = null }
-            "settings" -> { screen = Screen.Settings; MainActivity.pendingTab.value = null }
+            "ovens" -> { goTab(Screen.Ovens); MainActivity.pendingTab.value = null }
+            "today" -> { goTab(Screen.Today); MainActivity.pendingTab.value = null }
+            "records" -> { goTab(Screen.Records); MainActivity.pendingTab.value = null }
+            "settings" -> { goTab(Screen.Settings); MainActivity.pendingTab.value = null }
         }
     }
 
@@ -128,15 +149,15 @@ fun Root() {
         }
     }
 
-    BackHandler(enabled = screen !is Screen.Today) { screen = Screen.Today }
+    BackHandler(enabled = screen !is Screen.Today || history.isNotEmpty()) { goBack() }
 
     Scaffold(
         containerColor = Bg,
         bottomBar = {
             BottomBar(
                 current = screen,
-                onSelect = { screen = it },
-                onAdd = { screen = Screen.AddTask },
+                onSelect = { goTab(it) },
+                onAdd = { goTo(Screen.AddTask) },
             )
         },
     ) { pad ->
@@ -149,75 +170,72 @@ fun Root() {
                 is Screen.Today -> TodayScreen(
                     state = state,
                     now = now,
-                    onOpenOven = { screen = Screen.Ovens },
+                    onOpenOven = { goTo(Screen.Ovens) },
                     onSampled = { sampledTaskId = it },
-                    onOpenSample = { screen = Screen.Detail(it) },
-                    onAddTask = { screen = Screen.AddTask },
+                    onOpenSample = { goTo(Screen.Detail(it)) },
+                    onAddTask = { goTo(Screen.AddTask) },
                 )
 
                 is Screen.Ovens -> OvensScreen(
                     state = state,
                     now = now,
-                    onNewBake = { oven -> screen = Screen.BakeForm(oven = oven) },
-                    onOpenSample = { screen = Screen.Detail(it) },
+                    onNewBake = { oven -> goTo(Screen.BakeForm(oven = oven)) },
+                    onOpenSample = { goTo(Screen.Detail(it)) },
                 )
 
                 is Screen.Records -> RecordsScreen(
                     state = state,
                     now = now,
-                    onOpenSample = { screen = Screen.Detail(it) },
+                    onOpenSample = { goTo(Screen.Detail(it)) },
                 )
 
                 is Screen.Settings -> SettingsScreen(
                     state = state,
-                    onOpenType = { screen = Screen.TypeEditor(it) },
-                    onOpenDiagnostics = { screen = Screen.Diagnostics },
-                    onOpenDensity = { screen = Screen.Density },
-                    onOpenProducts = { screen = Screen.Products },
-                    onOpenFormulas = { screen = Screen.Formulas },
+                    onOpenType = { goTo(Screen.TypeEditor(it)) },
+                    onOpenDiagnostics = { goTo(Screen.Diagnostics) },
                 )
 
                 is Screen.Tools -> ToolsScreen(
                     state = state,
-                    onOpenRecords = { screen = Screen.Records },
-                    onOpenDensity = { screen = Screen.Density },
-                    onOpenProducts = { screen = Screen.Products },
-                    onOpenFormulas = { screen = Screen.Formulas },
-                    onOpenDiagnostics = { screen = Screen.Diagnostics },
+                    onOpenRecords = { goTo(Screen.Records) },
+                    onOpenDensity = { goTo(Screen.Density) },
+                    onOpenProducts = { goTo(Screen.Products) },
+                    onOpenFormulas = { goTo(Screen.Formulas) },
+                    onOpenDiagnostics = { goTo(Screen.Diagnostics) },
                 )
 
-                is Screen.Density -> DensityScreen(onBack = { screen = Screen.Tools })
+                is Screen.Density -> DensityScreen(onBack = { goBack() })
 
-                is Screen.Products -> ProductsScreen(state = state, onBack = { screen = Screen.Tools })
+                is Screen.Products -> ProductsScreen(state = state, onBack = { goBack() })
 
                 is Screen.Formulas -> FormulasScreen(
                     state = state,
-                    onOpen = { screen = Screen.FormulaEditor(it) },
-                    onBack = { screen = Screen.Tools },
+                    onOpen = { goTo(Screen.FormulaEditor(it)) },
+                    onBack = { goBack() },
                 )
 
                 is Screen.FormulaEditor -> FormulaEditorScreen(
                     state = state,
                     formulaId = s.formulaId,
-                    onBack = { screen = Screen.Formulas },
+                    onBack = { goBack() },
                 )
 
                 is Screen.Detail -> DetailScreen(
                     state = state,
                     now = now,
                     sampleId = s.sampleId,
-                    onBack = { screen = Screen.Today },
+                    onBack = { goBack() },
                     onBake = {
                         val free = state.freeOvens().firstOrNull()?.id
                             ?: state.ovens.firstOrNull()?.id ?: "door"
-                        screen = Screen.BakeForm(sampleId = s.sampleId, oven = free)
+                        goTo(Screen.BakeForm(sampleId = s.sampleId, oven = free))
                     },
                 )
 
                 is Screen.AddTask -> AddTaskScreen(
                     state = state,
-                    onBack = { screen = Screen.Today },
-                    onSaved = { screen = Screen.Today },
+                    onBack = { goBack() },
+                    onSaved = { goBack() },
                 )
 
                 is Screen.BakeForm -> BakeFormScreen(
@@ -225,19 +243,19 @@ fun Root() {
                     bakeId = s.bakeId,
                     sampleId = s.sampleId,
                     defaultOven = s.oven,
-                    onBack = { screen = Screen.Ovens },
-                    onSaved = { screen = Screen.Ovens },
+                    onBack = { goBack() },
+                    onSaved = { goBack() },
                 )
 
                 is Screen.TypeEditor -> TypeEditorScreen(
                     state = state,
                     typeId = s.typeId,
-                    onBack = { screen = Screen.Settings },
+                    onBack = { goBack() },
                 )
 
                 is Screen.Diagnostics -> DiagnosticsScreen(
                     state = state,
-                    onBack = { screen = Screen.Settings },
+                    onBack = { goBack() },
                 )
             }
 
@@ -259,7 +277,7 @@ fun Root() {
                         Repo.I.snoozeBake(due.first().id, 2)
                         ctx.stopService(Intent(ctx, RingService::class.java))
                     },
-                    onOpen = { screen = Screen.Ovens },
+                    onOpen = { goTo(Screen.Ovens) },
                 )
             }
         }
@@ -277,7 +295,7 @@ fun Root() {
                 onConfirm = { withBake, oven, temp, minutes ->
                     val id = Repo.I.confirmSampled(taskId, withBake, oven, temp, minutes)
                     sampledTaskId = null
-                    if (id != null) screen = Screen.Detail(id)
+                    if (id != null) goTo(Screen.Detail(id))
                 },
             )
         }

@@ -57,9 +57,6 @@ fun SettingsScreen(
     state: AppState,
     onOpenType: (String?) -> Unit,
     onOpenDiagnostics: () -> Unit = {},
-    onOpenDensity: () -> Unit = {},
-    onOpenProducts: () -> Unit = {},
-    onOpenFormulas: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val s = state.settings
@@ -73,13 +70,15 @@ fun SettingsScreen(
     var confirmDeleteType by remember { mutableStateOf<String?>(null) }
     var alarmGranted by remember { mutableStateOf(AlarmScheduler.canExact(ctx)) }
     var notifOn by remember { mutableStateOf(NotificationManagerCompat.from(ctx).areNotificationsEnabled()) }
-    var lockOk by remember { mutableStateOf(lockScreenOk(ctx)) }
+    var overlayOn by remember { mutableStateOf(overlayOk(ctx)) }
+    var battOk by remember { mutableStateOf(ignoreBattOk(ctx)) }
 
     // 用户去系统设置里开了权限再回来，这里要重新读一次，不然一直显示「未开启」
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         notifOn = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
         alarmGranted = AlarmScheduler.canExact(ctx)
-        lockOk = lockScreenOk(ctx)
+        overlayOn = overlayOk(ctx)
+        battOk = ignoreBattOk(ctx)
     }
 
     LazyColumn(
@@ -91,18 +90,6 @@ fun SettingsScreen(
                 Text("设置", style = MaterialTheme.typography.displaySmall, color = Ink)
                 Spacer(Modifier.height(2.dp))
                 Text("提醒、产品类型、客户、数据备份", style = MaterialTheme.typography.bodyMedium, color = Ink3)
-            }
-        }
-
-        item { SectionHeader("工具") }
-
-        item {
-            AppCard {
-                ToolRow("⚖️", "比重计算器", "输 M1~M6，出比重 / 固体成分 / 发泡率", onOpenDensity)
-                ThinDivider()
-                ToolRow("📋", "产品条件表", "${state.products.size} 条 · 哪个客户烤多少度多久", onOpenProducts)
-                ThinDivider()
-                ToolRow("⚗️", "配料", "${state.formulas.size} 个配方 · 克数和百分比自动换算", onOpenFormulas)
             }
         }
 
@@ -189,23 +176,27 @@ fun SettingsScreen(
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            if (lockOk) "锁屏显示已开启" else "锁屏显示未开启",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = if (lockOk) Ink else Danger,
-                        )
-                        Text(
-                            if (lockOk) "黑屏到点会直接全屏响铃" else "不开启的话，黑屏到点会先让你解锁再响铃",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Ink3,
-                        )
-                    }
-                    if (!lockOk) {
-                        SmallButton("去开启") { openOverlay(ctx) }
-                    }
-                }
+                PermRow(
+                    title = "锁屏显示",
+                    sub = "安卓没有这个权限的申请弹窗，得在系统里手动打开；开了黑屏到点才直接全屏响铃",
+                    bad = false,
+                    action = "去打开",
+                    always = true,
+                ) { openAppDetails(ctx) }
+                Spacer(Modifier.height(10.dp))
+                PermRow(
+                    title = if (overlayOn) "悬浮窗已开启" else "悬浮窗未开启",
+                    sub = "允许后台弹出响铃页",
+                    bad = !overlayOn,
+                    action = "去开启",
+                ) { openOverlay(ctx) }
+                Spacer(Modifier.height(10.dp))
+                PermRow(
+                    title = if (battOk) "后台运行不受限制" else "后台运行可能被限制",
+                    sub = "防止系统把闹钟和响铃掐掉",
+                    bad = !battOk,
+                    action = "去设置",
+                ) { openBattery(ctx) }
             }
         }
 
@@ -617,8 +608,38 @@ fun ToolRow(emoji: String, title: String, sub: String, onClick: () -> Unit) {
     }
 }
 
-private fun lockScreenOk(ctx: android.content.Context): Boolean = try {
+
+@Composable
+private fun PermRow(
+    title: String,
+    sub: String,
+    bad: Boolean,
+    action: String,
+    always: Boolean = false,
+    onClick: () -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                color = if (bad) Danger else Ink,
+            )
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = Ink3)
+        }
+        if (bad || always) SmallButton(action) { onClick() }
+    }
+}
+
+private fun overlayOk(ctx: android.content.Context): Boolean = try {
     android.provider.Settings.canDrawOverlays(ctx)
+} catch (_: Throwable) {
+    true
+}
+
+private fun ignoreBattOk(ctx: android.content.Context): Boolean = try {
+    val pm = ctx.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+    pm.isIgnoringBatteryOptimizations(ctx.packageName)
 } catch (_: Throwable) {
     true
 }

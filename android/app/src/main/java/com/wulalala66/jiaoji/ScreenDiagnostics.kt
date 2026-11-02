@@ -148,7 +148,7 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
                 ThinDivider()
                 CheckRow("全屏提醒", fsiOk, "去允许") { openFullScreen(ctx) }
                 ThinDivider()
-                CheckRow("锁屏显示", lockOk, "去开启") { openOverlay(ctx) }
+                CheckRow("悬浮窗", lockOk, "去开启") { openOverlay(ctx) }
                 ThinDivider()
                 CheckRow("后台不受限制", battOk, "去设置") { openBattery(ctx) }
                 ThinDivider()
@@ -342,6 +342,16 @@ fun openFullScreen(ctx: Context) {
             Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + ctx.packageName))
         }
         ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (_: Throwable) {
+    }
+}
+
+fun openAppDetails(ctx: Context) {
+    try {
+        ctx.startActivity(
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + ctx.packageName))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        )
     } catch (_: Throwable) {
     }
 }
