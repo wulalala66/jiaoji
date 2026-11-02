@@ -346,7 +346,8 @@ class RepoTest {
         val after = state().sampleOf(sampleId)!!.tests.first { it.id == t.id }
         assertEquals(4.42, after.dens!!.m3, 1e-9)
         assertEquals("比重应写进数值字段，方便和标准比对", "1.4074", after.value)
-        assertEquals(Verdict.EMPTY, verdictOf(after))
+        // 没设标准上下限时，有数值就算 PASS（和别的测试项一致）
+        assertEquals(Verdict.PASS, verdictOf(after))
 
         // 落盘
         val saved = persisted().sampleOf(sampleId)!!.tests.first { it.id == t.id }
