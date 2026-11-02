@@ -397,6 +397,9 @@ class AlarmReceiver : BroadcastReceiver() {
 
         // 2) 全屏响铃界面（锁屏也能亮屏）——到点 / 测试 / 权限申请才拉起，提前提醒只弹通知
         if (kind == "due" || kind == "test" || kind == "perm") {
+            // 先挂个 1×1 透明悬浮窗，让本进程「有可见窗口」，这样后台 startActivity
+            // 不会被 ColorOS 静默掐掉（Android 14 起这是合法的后台启动豁免）
+            RingOverlay.peek(context)
             RingNotif.launchRingActivity(context, key, title, body, kind)
         }
 
@@ -433,10 +436,13 @@ class RingService : Service() {
             }
             AlarmLog.add(
                 ctx,
-                if (attempt == 0) "响铃页没弹出来，再拉一次"
-                else "✗ 响铃页还是没弹出来：去设置给「后台弹出界面」和「锁屏显示」",
+                if (attempt == 0) "响铃页没弹出来，改用悬浮窗兜底"
+                else "✗ 响铃页和悬浮窗都没弹出来：检查悬浮窗权限",
             )
             RingNotif.launchRingActivity(ctx, key, title, body, kind)
+            // Activity 被 ROM 掐掉时的兜底：直接把响铃界面画在悬浮窗上。
+            // 悬浮窗不经过「后台启动 Activity」的限制，黑屏也能显示。
+            RingOverlay.show(ctx, key, title, body, kind)
         }
     }
 
@@ -656,6 +662,7 @@ class RingService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        RingOverlay.hide()
         releasePlayer()
         try {
             vibrator?.cancel()
@@ -691,6 +698,7 @@ object RingActions {
     }
 
     fun stopRinging(ctx: Context) {
+        RingOverlay.hide()
         try {
             ctx.stopService(Intent(ctx, RingService::class.java))
         } catch (_: Throwable) {

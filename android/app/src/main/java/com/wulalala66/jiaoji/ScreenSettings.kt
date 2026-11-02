@@ -195,6 +195,16 @@ fun SettingsScreen(
                     }
                 }
                 Spacer(Modifier.height(10.dp))
+                // 悬浮窗是黑屏响铃的主力兜底：Activity 被 ROM 掐掉时，直接把响铃界面画在悬浮窗上
+                PermRow(
+                    title = if (overlayOn) "悬浮窗已开启（黑屏响铃靠它）" else "悬浮窗未开启（黑屏响铃需要它）",
+                    sub = if (overlayOn) "响铃页弹不出来时，胶记会直接把响铃界面画在悬浮窗上"
+                    else "没开的话，黑屏时可能只有声音没有界面。点「去开启」→ 允许显示在其他应用上层",
+                    bad = !overlayOn,
+                    action = "去开启",
+                    always = true,
+                ) { openOverlay(ctx) }
+                Spacer(Modifier.height(10.dp))
                 var testQueued by remember { mutableStateOf(false) }
                 Column {
                     Text("锁屏显示", style = MaterialTheme.typography.titleSmall, color = Ink)
@@ -216,13 +226,6 @@ fun SettingsScreen(
                 }
                 Spacer(Modifier.height(10.dp))
                 PermRow(
-                    title = if (overlayOn) "悬浮窗已开启" else "悬浮窗未开启",
-                    sub = "允许后台弹出响铃页",
-                    bad = !overlayOn,
-                    action = "去开启",
-                ) { openOverlay(ctx) }
-                Spacer(Modifier.height(10.dp))
-                PermRow(
                     title = if (battOk) "后台运行不受限制" else "后台运行可能被限制",
                     sub = "防止系统把闹钟和响铃掐掉",
                     bad = !battOk,
@@ -231,9 +234,14 @@ fun SettingsScreen(
                 if (OemHelper.isColorOs || OemHelper.isMiui || OemHelper.isVivo || OemHelper.isEmui) {
                     Spacer(Modifier.height(10.dp))
                     Column {
-                        Text("后台弹出界面", style = MaterialTheme.typography.titleSmall, color = Danger)
                         Text(
-                            "不开这个，黑屏时只有声音、响铃页弹不出来。点「允许」：胶记会退到后台并自己弹一下，系统会问你「允许后台弹出界面」——点允许就行。",
+                            "后台弹出界面",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = if (overlayOn) Ink else Danger,
+                        )
+                        Text(
+                            if (overlayOn) "开了更稳（直接起全屏响铃页）。不开也能响：胶记会改用悬浮窗把界面画出来。点「允许」：胶记会退到后台自己弹一下，系统会问你「允许后台弹出界面」——点允许就行。"
+                            else "不开这个，黑屏时可能只有声音。点「允许」：胶记会退到后台自己弹一下，系统会问你「允许后台弹出界面」——点允许就行。",
                             style = MaterialTheme.typography.bodySmall,
                             color = Ink3,
                         )
