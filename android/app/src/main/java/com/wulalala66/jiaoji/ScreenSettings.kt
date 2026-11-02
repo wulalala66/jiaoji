@@ -207,7 +207,7 @@ fun SettingsScreen(
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         SmallButton("允许", true) {
-                            findActivity()?.moveTaskToBack(true)
+                            ctx.findActivity()?.moveTaskToBack(true)
                             AlarmScheduler.scheduleTest(ctx, 2, quiet = true)
                             testQueued = true
                         }
@@ -240,7 +240,7 @@ fun SettingsScreen(
                         Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             SmallButton("允许", true) {
-                                findActivity()?.moveTaskToBack(true)
+                                ctx.findActivity()?.moveTaskToBack(true)
                                 AlarmScheduler.scheduleTest(ctx, 2, quiet = true)
                             }
                             SmallButton("系统设置里找") { OemHelper.openBackgroundPopup(ctx) }
