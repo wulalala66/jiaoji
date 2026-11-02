@@ -356,6 +356,40 @@ fun openAppDetails(ctx: Context) {
     }
 }
 
+/**
+ * 跳到系统里能打开「锁屏显示」的地方。
+ * 安卓没有这个权限的申请弹窗，各家的入口也不一样：
+ *  - 小米 / 红米（MIUI、HyperOS）：可以直接打开「应用权限管理」页，里面有锁屏显示、自启动、后台弹出界面
+ *  - 其它 ROM：退到「应用信息 → 权限」页，锁屏显示通常也在这一页
+ */
+fun openLockScreenSettings(ctx: Context) {
+    // 1) MIUI / HyperOS 的权限编辑页（锁屏显示、自启动、后台弹出界面都在这页）
+    try {
+        ctx.startActivity(
+            Intent("miui.intent.action.APP_PERM_EDITOR").apply {
+                putExtra("extra_pkgname", ctx.packageName)
+                putExtra("extra_package_name", ctx.packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        )
+        return
+    } catch (_: Throwable) {
+    }
+    // 2) 华为 / 荣耀的权限页
+    try {
+        ctx.startActivity(
+            Intent("com.huawei.permissionmanager.ui.MainActivity").apply {
+                putExtra("packageName", ctx.packageName)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        )
+        return
+    } catch (_: Throwable) {
+    }
+    // 3) 通用：应用信息页
+    openAppDetails(ctx)
+}
+
 fun openOverlay(ctx: Context) {
     try {
         val i = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + ctx.packageName))

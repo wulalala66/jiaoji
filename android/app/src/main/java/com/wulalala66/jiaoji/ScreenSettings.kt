@@ -180,9 +180,9 @@ fun SettingsScreen(
                     title = "锁屏显示",
                     sub = "要在系统里手动打开（安卓没有申请弹窗）。开了黑屏到点直接全屏响铃；没开就只会响铃 + 通知",
                     bad = false,
-                    action = "去打开",
+                    action = "去开启",
                     always = true,
-                ) { openAppDetails(ctx) }
+                ) { openLockScreenSettings(ctx) }
                 Spacer(Modifier.height(10.dp))
                 PermRow(
                     title = if (overlayOn) "悬浮窗已开启" else "悬浮窗未开启",
