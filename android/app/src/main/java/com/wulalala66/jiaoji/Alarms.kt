@@ -425,7 +425,10 @@ class RingService : Service() {
                 putExtra("autoStopMs", autoStopMs)
             }
 
-        /** 响铃页没起来就再拉一次；起来了就只记一笔 */
+        /** 当前正在响的 key：进程内检查和 AlarmManager 可能同时触发，避免双重响铃 */
+        @Volatile
+        var ringingKey: String? = null
+            private set
     }
 
     private var player: MediaPlayer? = null
@@ -457,6 +460,12 @@ class RingService : Service() {
             AlarmLog.add(this, "✗ startForeground 失败 ${e.javaClass.simpleName}: ${e.message}")
         }
 
+        if (ringingKey == key && player != null) {
+            AlarmLog.add(this, "已经在响，忽略重复请求 $key")
+            return START_NOT_STICKY
+        }
+        ringingKey = key
+
         acquireWake()
         // 界面由 AlarmReceiver 里的 PendingIntent 拉起（2.2.1 起就是这么做的，实测最稳）。
         // 这里只负责声音和振动：服务多拉一次 Activity 反而会把已经在起的响铃页顶掉。
@@ -468,6 +477,17 @@ class RingService : Service() {
             AlarmLog.add(this, "声音开关是关的，跳过铃声")
         }
         if ((kind == "due" || testing) && (s.settings.vibrate || testing)) startVibrate()
+
+        // 响铃页没起来（ROM 拦了后台启动）→ 用悬浮窗把界面画出来。
+        // 悬浮窗不经过 Activity 启动限制，黑屏也能显示；Activity 真起来了 onResume 会把它收掉。
+        if (kind == "due" || kind == "test") {
+            handler.postDelayed({
+                if (!RingActivity.alive && !RingOverlay.isShown()) {
+                    AlarmLog.add(this, "响铃页没起来，改用悬浮窗")
+                    RingOverlay.show(this, key, title, body, kind)
+                }
+            }, 1_800L)
+        }
 
         // 提前提醒响两声就停（20 秒），到点铃声一直响到用户确认
         val stopAfter = when {
@@ -638,6 +658,7 @@ class RingService : Service() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        ringingKey = null
         RingOverlay.hide()
         releasePlayer()
         try {

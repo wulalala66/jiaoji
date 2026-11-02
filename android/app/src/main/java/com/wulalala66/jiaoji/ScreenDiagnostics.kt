@@ -17,6 +17,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -51,6 +53,7 @@ import androidx.core.content.ContextCompat
 /**
  * 自检与诊断：响铃不响 / 点了没反应时，用这一页拿到事实。
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
     val ctx = LocalContext.current
@@ -190,7 +193,10 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
 
             SectionHeader("测试", trailing = null)
             AppCard {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
                     DiagButton("提前提醒音效", false) {
                         try {
                             ContextCompat.startForegroundService(
@@ -219,7 +225,7 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
                         )
                     }
                     DiagButton("全屏响铃页", false) {
-                        RingNotif.launchRingActivity(ctx, "test:", "测试全屏提醒", "这就是到点时的样子", "pre")
+                        RingNotif.launchRingActivity(ctx, "test:", "测试全屏提醒", "这就是到点时的样子", "test")
                         tick++
                     }
                     DiagButton("10 秒后响铃", false) {
