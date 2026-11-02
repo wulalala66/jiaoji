@@ -42,10 +42,16 @@ class KeepAliveService : Service() {
         fun ensureChannel(ctx: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
             val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
-            if (nm.getNotificationChannel(CHANNEL) != null) return
-            val ch = NotificationChannel(CHANNEL, "倒计时（常驻）", NotificationManager.IMPORTANCE_LOW)
+            val old = nm.getNotificationChannel(CHANNEL)
+            if (old != null && old.importance >= NotificationManager.IMPORTANCE_DEFAULT) return
+            if (old != null) nm.deleteNotificationChannel(CHANNEL)
+            // 锁屏上能不能显示跟重要性有关：ColorOS 会把 LOW 优先级的通知从锁屏上藏掉，
+            // 所以这里用 DEFAULT；声音还是关掉的（setSilent + 无声渠道）。
+            val ch = NotificationChannel(CHANNEL, "倒计时（常驻）", NotificationManager.IMPORTANCE_DEFAULT)
             ch.description = "锁屏和状态栏常驻一条倒计时，能看是哪个烘箱、还剩多久"
             ch.setShowBadge(false)
+            ch.enableVibration(false)
+            ch.setSound(null, null)
             ch.lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             nm.createNotificationChannel(ch)
         }
