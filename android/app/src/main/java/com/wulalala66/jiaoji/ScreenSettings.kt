@@ -140,6 +140,13 @@ fun SettingsScreen(
                 ToggleRow("保持屏幕常亮", "看计时的时候不会黑屏", s.keepAwake) { v ->
                     Repo.I.updateSettings { it.copy(keepAwake = v) }
                 }
+                ToggleRow(
+                    "状态栏常驻通知",
+                    "有计时时在通知栏挂一条进度，系统不容易把胶记杀掉；没任务会自动消失",
+                    s.keepAlive,
+                ) { v ->
+                    Repo.I.updateSettings { it.copy(keepAlive = v) }
+                }
             }
         }
 
@@ -213,6 +220,44 @@ fun SettingsScreen(
                     }
                     if (!overlayOn) {
                         SmallButton("去开启", true) { openOverlay(ctx) }
+                    }
+                }
+                // Android 14 起「全屏通知」是单独的开关，没允许的话到点只有横幅、不会接管屏幕
+                if (!fsiOk) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "全屏通知未允许",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = Danger,
+                            )
+                            Text(
+                                "Android 14 起要单独允许，否则到点只弹横幅、不会全屏",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Ink3,
+                            )
+                        }
+                        SmallButton("允许", true) { OemHelper.openFullScreenIntentSettings(ctx) }
+                    }
+                }
+                // 电池优化白名单：系统清理后台时，加了白名单会稳很多（点一下就是系统自己的对话框）
+                if (!battOk) {
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "后台可能被系统清理",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = Warn,
+                            )
+                            Text(
+                                "允许后台运行，响铃更稳",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Ink3,
+                            )
+                        }
+                        SmallButton("允许", true) { OemHelper.openBatterySettings(ctx) }
                     }
                 }
             }

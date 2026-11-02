@@ -8,6 +8,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <!-- 闹钟类应用专用：安装即拥有精确闹钟能力，无需用户去设置里手动允许 -->
@@ -50,6 +51,15 @@
             android:turnScreenOn="true"
             android:taskAffinity="com.wulalala66.jiaoji.ring"
             android:theme="@style/Theme.JiaoJi.Ring" />
+
+        <service
+            android:name=".KeepAliveService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="jiaoji_timer_guard" />
+        </service>
 
         <service
             android:name=".RingService"

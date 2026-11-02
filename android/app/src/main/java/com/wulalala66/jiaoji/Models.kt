@@ -14,6 +14,7 @@ data class Settings(
     var sound: Boolean = true,
     var vibrate: Boolean = true,
     var keepAwake: Boolean = true,
+    var keepAlive: Boolean = true,
     var notifyAsked: Boolean = false,
 )
 
@@ -359,6 +360,7 @@ object Codec {
             put("sound", s.settings.sound)
             put("vibrate", s.settings.vibrate)
             put("keepAwake", s.settings.keepAwake)
+            put("keepAlive", s.settings.keepAlive)
             put("notifyAsked", s.settings.notifyAsked)
         })
         o.put("types", JSONArray().apply {
@@ -478,6 +480,7 @@ object Codec {
                 sound = j.optBoolean("sound", true),
                 vibrate = j.optBoolean("vibrate", true),
                 keepAwake = j.optBoolean("keepAwake", true),
+                keepAlive = j.optBoolean("keepAlive", true),
                 notifyAsked = j.optBoolean("notifyAsked", false),
             )
         }

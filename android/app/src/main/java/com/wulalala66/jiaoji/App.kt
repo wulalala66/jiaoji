@@ -21,6 +21,8 @@ class App : Application() {
         super.onCreate()
         Repo.I.init(this)
         RingNotif.ensureChannel(this)
+        KeepAliveService.ensureChannel(this)
+        KeepAlive.sync(this, Repo.I.state.value)
         scope.launch { watchDueTimes() }
     }
 
@@ -43,6 +45,7 @@ class App : Application() {
 
     private fun checkOnce() {
         val s = Repo.I.state.value
+        KeepAlive.sync(this, s)
         val now = System.currentTimeMillis()
         val grace = 5 * 60_000L
 
