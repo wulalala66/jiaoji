@@ -8,6 +8,8 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
@@ -69,7 +71,6 @@ fun SettingsScreen(
     var showAddOven by remember { mutableStateOf(false) }
     var renameOvenTarget by remember { mutableStateOf<String?>(null) }
     var confirmDeleteOven by remember { mutableStateOf<String?>(null) }
-    var askPopup by remember { mutableStateOf(false) }
     var renameTarget by remember { mutableStateOf<String?>(null) }
     var showImport by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf(false) }
@@ -79,6 +80,12 @@ fun SettingsScreen(
     var overlayOn by remember { mutableStateOf(overlayOk(ctx)) }
     var battOk by remember { mutableStateOf(ignoreBattOk(ctx)) }
     var fsiOk by remember { mutableStateOf(OemHelper.canUseFullScreenIntent(ctx)) }
+    // 通知权限是真正的系统运行时权限，可以直接弹系统框问用户要
+    val notifLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        notifOn = granted || NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+    }
 
     // 用户去系统设置里开了权限再回来，这里要重新读一次，不然一直显示「未开启」
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
@@ -152,10 +159,14 @@ fun SettingsScreen(
                         )
                     }
                     if (!notifOn) {
-                        SmallButton("去开启") {
-                            val i = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                                .putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName)
-                            runCatching { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                        SmallButton("允许通知", true) {
+                            if (Build.VERSION.SDK_INT >= 33) {
+                                notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                val i = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName)
+                                runCatching { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                            }
                         }
                     }
                 }
@@ -188,19 +199,19 @@ fun SettingsScreen(
                 Column {
                     Text("锁屏显示", style = MaterialTheme.typography.titleSmall, color = Ink)
                     Text(
-                        if (testQueued) "已排好：10 秒后响铃。现在把手机锁屏，到点会亮屏并弹出响铃页；系统问「允许在锁屏上显示」就点允许。"
-                        else if (OemHelper.isColorOs) "OPPO / 一加 / realme 还要把下面的「允许后台弹出界面」打开，否则黑屏时只有声音。点「试一下」排一个 10 秒后的闹钟，先把手机锁屏。"
-                        else "第一次到点响铃时，系统会自己弹「允许在锁屏上显示」，点允许之后就一直有效。想现在就申请，点「试一下」——10 秒后响铃，先把手机锁屏。",
+                        if (testQueued) "2 秒后胶记会自己弹一下，系统问「允许在锁屏上显示」就点允许。"
+                        else "点「允许」：胶记会退到后台并自己弹一下，系统这时候会问你「允许在锁屏上显示」——点允许就行，不用自己去设置里找。",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (testQueued) Brand else Ink3,
                     )
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SmallButton("试一下", true) {
-                            AlarmScheduler.scheduleTest(ctx, 10)
+                        SmallButton("允许", true) {
+                            findActivity()?.moveTaskToBack(true)
+                            AlarmScheduler.scheduleTest(ctx, 2, quiet = true)
                             testQueued = true
                         }
-                        SmallButton("去系统设置") { openLockScreenSettings(ctx) }
+                        SmallButton("系统设置里找") { openLockScreenSettings(ctx) }
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -220,16 +231,19 @@ fun SettingsScreen(
                 if (OemHelper.isColorOs || OemHelper.isMiui || OemHelper.isVivo || OemHelper.isEmui) {
                     Spacer(Modifier.height(10.dp))
                     Column {
-                        Text("允许后台弹出界面", style = MaterialTheme.typography.titleSmall, color = Danger)
+                        Text("后台弹出界面", style = MaterialTheme.typography.titleSmall, color = Danger)
                         Text(
-                            "${OemHelper.romName()}：不开这个，黑屏时只有声音，响铃页弹不出来。",
+                            "不开这个，黑屏时只有声音、响铃页弹不出来。点「允许」：胶记会退到后台并自己弹一下，系统会问你「允许后台弹出界面」——点允许就行。",
                             style = MaterialTheme.typography.bodySmall,
                             color = Ink3,
                         )
                         Spacer(Modifier.height(8.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SmallButton("主动申请", true) { askPopup = true }
-                            SmallButton("手动去开") { OemHelper.openBackgroundPopup(ctx) }
+                            SmallButton("允许", true) {
+                                findActivity()?.moveTaskToBack(true)
+                                AlarmScheduler.scheduleTest(ctx, 2, quiet = true)
+                            }
+                            SmallButton("系统设置里找") { OemHelper.openBackgroundPopup(ctx) }
                         }
                     }
                     Spacer(Modifier.height(10.dp))
@@ -424,10 +438,6 @@ fun SettingsScreen(
                 )
             }
         }
-    }
-
-    if (askPopup) {
-        PopupRequestDialog(onDismiss = { askPopup = false })
     }
 
     if (showAddOven) {
@@ -699,125 +709,4 @@ private fun ignoreBattOk(ctx: android.content.Context): Boolean = try {
     pm.isIgnoringBatteryOptimizations(ctx.packageName)
 } catch (_: Throwable) {
     true
-}
-
-/**
- * 主动申请「后台弹出界面」。
- *
- * ColorOS 只会在「胶记在后台、又要弹界面的那一刻」问用户要不要给这个权限，
- * 没有可以主动调起的授权页，所以这里就制造那一刻：排一个 10 秒后的闹钟，
- * 让用户按 Home 键离开 App，到点系统就会弹「允许后台弹出界面？」。
- * 弹完回来看日志里有没有「响铃页到前台」，有就是给了。
- */
-@Composable
-private fun PopupRequestDialog(onDismiss: () -> Unit) {
-    val ctx = LocalContext.current
-    var step by remember { mutableIntStateOf(0) }
-    var baseline by remember { mutableIntStateOf(0) }
-    var waited by remember { mutableIntStateOf(0) }
-
-    LaunchedEffect(step) {
-        if (step != 1) return@LaunchedEffect
-        var t = 0
-        while (t < 40) {
-            delay(1000)
-            t++
-            waited = t
-            val hits = AlarmLog.all(ctx).count { it.contains("响铃页到前台") }
-            if (hits > baseline) {
-                step = 2
-                return@LaunchedEffect
-            }
-        }
-        step = 3
-    }
-
-    val path = "设置 → 应用管理 → 胶记 → 权限；找不到就去 权限与隐私 → 权限管理 → 特殊权限 → 后台弹出界面 → 找到「胶记」打开"
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                when (step) {
-                    0 -> "主动申请「后台弹出界面」"
-                    1 -> "现在按 Home 键回桌面"
-                    2 -> "成功了"
-                    else -> "没等到响铃页"
-                },
-            )
-        },
-        text = {
-            Column {
-                when (step) {
-                    0 -> {
-                        Text(
-                            "系统只会在「胶记在后台、又要弹界面的那一刻」问你要这个权限，没有可以直接调起的授权页。所以这样做：",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Ink,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "1. 点下面「开始」，10 秒后胶记会自己响一次\n" +
-                                "2. 马上按 Home 键回桌面（别锁屏、别划掉胶记）\n" +
-                                "3. 到点系统会弹「允许胶记后台弹出界面？」，点允许\n" +
-                                "4. 响完点回胶记，这里会告诉你结果",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Ink2,
-                        )
-                    }
-                    1 -> {
-                        Text(
-                            "还剩 ${(10 - waited).coerceAtLeast(0)} 秒。现在按 Home 键回桌面等着，别锁屏。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Brand,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "弹出来的框点「允许」。响完再点回胶记看结果（最多等 40 秒）。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Ink3,
-                        )
-                    }
-                    2 -> {
-                        Text(
-                            "响铃页已经弹到前台了，说明权限生效。以后黑屏到点会亮屏并弹出响铃页。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Ok,
-                        )
-                    }
-                    else -> {
-                        Text(
-                            "40 秒内没看到响铃页。可能是系统没弹框（那就手动开），也可能是「锁屏显示」和「悬浮窗」还没给。",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Danger,
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(path, style = MaterialTheme.typography.bodySmall, color = Ink2)
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            when (step) {
-                0 -> TextButton(onClick = {
-                    baseline = AlarmLog.all(ctx).count { it.contains("响铃页到前台") }
-                    waited = 0
-                    AlarmScheduler.scheduleTest(ctx, 10)
-                    step = 1
-                }) { Text("开始（10 秒后响）") }
-                1 -> TextButton(onClick = { step = 0 }) { Text("重来") }
-                2 -> TextButton(onClick = onDismiss) { Text("好") }
-                else -> TextButton(onClick = {
-                    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                    cm?.setPrimaryClip(ClipData.newPlainText("后台弹出界面路径", path))
-                }) { Text("复制路径") }
-            }
-        },
-        dismissButton = {
-            when (step) {
-                3 -> TextButton(onClick = { OemHelper.openBackgroundPopup(ctx) }) { Text("手动去开") }
-                else -> TextButton(onClick = onDismiss) { Text("关闭") }
-            }
-        },
-    )
 }

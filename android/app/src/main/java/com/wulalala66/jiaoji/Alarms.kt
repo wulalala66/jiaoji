@@ -82,19 +82,26 @@ object AlarmScheduler {
      * 用来在设置页里当场申请/验证「锁屏显示」——很多 ROM 第一次把界面盖到锁屏上时
      * 会自己弹「允许在锁屏上显示」，点允许就长期生效了。
      */
-    fun scheduleTest(ctx: Context, seconds: Int = 10) {
+    fun scheduleTest(ctx: Context, seconds: Int = 10, quiet: Boolean = false) {
         val am = ctx.getSystemService(AlarmManager::class.java) ?: return
         val at = System.currentTimeMillis() + seconds * 1000L
         val i = Intent(ctx, AlarmReceiver::class.java).apply {
             action = ACTION_ALARM
-            data = Uri.parse("jiaoji://alarm/test:lock")
-            putExtra("key", "test:lock")
-            putExtra("title", "锁屏响铃测试")
-            putExtra("body", "看到这个页面就说明锁屏响铃没问题，点下面按钮关掉")
-            putExtra("kind", "test")
+            data = Uri.parse(if (quiet) "jiaoji://alarm/test:perm" else "jiaoji://alarm/test:lock")
+            putExtra("key", if (quiet) "test:perm" else "test:lock")
+            putExtra(
+                "title",
+                if (quiet) "申请锁屏 / 后台弹出界面" else "锁屏响铃测试",
+            )
+            putExtra(
+                "body",
+                if (quiet) "系统要是问你「允许在锁屏上显示」或「允许后台弹出界面」，点允许就行"
+                else "看到这个页面就说明锁屏响铃没问题，点下面按钮关掉",
+            )
+            putExtra("kind", if (quiet) "perm" else "test")
         }
         val pi = PendingIntent.getBroadcast(
-            ctx, 918_273, i,
+            ctx, if (quiet) 918_274 else 918_273, i,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         try {
@@ -110,7 +117,7 @@ object AlarmScheduler {
             }
         } catch (_: Throwable) {
         }
-        AlarmLog.add(ctx, "排定锁屏响铃测试：${seconds}s 后")
+        AlarmLog.add(ctx, "排定${if (quiet) "权限申请" else "锁屏响铃测试"}：${seconds}s 后")
     }
     private const val PREF = "jiaoji_alarms"
     private const val EXTRA_PREFIX = "jiaoji://alarm/"
@@ -376,18 +383,20 @@ class AlarmReceiver : BroadcastReceiver() {
         AlarmLog.add(context, "⏰ 闹钟触发 $key ($kind)")
         RingNotif.ensureChannel(context)
 
-        // 1) 前台服务：即使界面拉不起来也保证有声音 + 振动
-        try {
-            ContextCompat.startForegroundService(
-                context, RingService.intent(context, key, title, body, kind)
-            )
-            AlarmLog.add(context, "前台服务已请求")
-        } catch (e: Throwable) {
-            AlarmLog.add(context, "✗ 服务启动失败 ${e.javaClass.simpleName}: ${e.message}")
+        // 1) 前台服务：即使界面拉不起来也保证有声音 + 振动（权限申请是静音的，不起服务）
+        if (kind != "perm") {
+            try {
+                ContextCompat.startForegroundService(
+                    context, RingService.intent(context, key, title, body, kind)
+                )
+                AlarmLog.add(context, "前台服务已请求")
+            } catch (e: Throwable) {
+                AlarmLog.add(context, "✗ 服务启动失败 ${e.javaClass.simpleName}: ${e.message}")
+            }
         }
 
-        // 2) 全屏响铃界面（锁屏也能亮屏）——只有到点才拉起，提前提醒只弹通知
-        if (kind == "due" || kind == "test") {
+        // 2) 全屏响铃界面（锁屏也能亮屏）——到点 / 测试 / 权限申请才拉起，提前提醒只弹通知
+        if (kind == "due" || kind == "test" || kind == "perm") {
             RingNotif.launchRingActivity(context, key, title, body, kind)
         }
 

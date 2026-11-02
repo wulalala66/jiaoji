@@ -109,9 +109,12 @@ class RingActivity : ComponentActivity() {
         AlarmLog.add(this, "响铃界面打开 $key")
 
         // 界面起来了但服务没起来（极少数机型会拦前台服务）→ 由 Activity 再兜一次
-        try {
-            startForegroundService(RingService.intent(this, key, title, body, kind))
-        } catch (_: Throwable) {
+        // 权限申请是静音的，不启响铃服务
+        if (kind != "perm") {
+            try {
+                startForegroundService(RingService.intent(this, key, title, body, kind))
+            } catch (_: Throwable) {
+            }
         }
 
         setContent {
@@ -151,11 +154,11 @@ class RingActivity : ComponentActivity() {
             }
         }, 1200L)
 
-        // 10 分钟没人处理就自己停，避免一直响
+        // 10 分钟没人处理就自己停，避免一直响；权限测试只留 15 秒
         handler.postDelayed({
             RingActions.stopRinging(this)
             finishAndRemoveTask()
-        }, 10 * 60_000L)
+        }, if (kind == "perm") 15_000L else 10 * 60_000L)
     }
 
     override fun onResume() {
@@ -188,6 +191,7 @@ private fun RingScreen(
         }
     }
     val isDue = kind == "due"
+    val isPerm = kind == "perm"
     val accent = if (isDue) Brand else Warn
 
     Surface(color = ColorRingBg, modifier = Modifier.fillMaxSize()) {
@@ -235,7 +239,11 @@ private fun RingScreen(
             )
             Spacer(Modifier.height(6.dp))
             Text(
-                if (isDue) "响铃中 · 处理完请点下面的按钮" else "提前提醒 · 不用处理可以关掉",
+                when {
+                    isDue -> "响铃中 · 处理完请点下面的按钮"
+                    isPerm -> "这一步就是让系统弹权限框，弹出来点「允许」"
+                    else -> "提前提醒 · 不用处理可以关掉"
+                },
                 fontSize = 13.sp,
                 color = Ink3,
                 textAlign = TextAlign.Center
@@ -265,12 +273,14 @@ private fun RingScreen(
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Brand)
                 ) {
-                    Text("知道了", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (isPerm) "好，我知道了" else "知道了", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
-            Spacer(Modifier.height(6.dp))
-            TextButton(onClick = onSilence) {
-                Text("只关掉声音", fontSize = 14.sp, color = Ink3)
+            if (!isPerm) {
+                Spacer(Modifier.height(6.dp))
+                TextButton(onClick = onSilence) {
+                    Text("只关掉声音", fontSize = 14.sp, color = Ink3)
+                }
             }
             Spacer(Modifier.height(8.dp))
         }
