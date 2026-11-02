@@ -178,7 +178,7 @@ fun SettingsScreen(
                 Spacer(Modifier.height(10.dp))
                 PermRow(
                     title = "锁屏显示",
-                    sub = "安卓没有这个权限的申请弹窗，得在系统里手动打开；开了黑屏到点才直接全屏响铃",
+                    sub = "要在系统里手动打开（安卓没有申请弹窗）。开了黑屏到点直接全屏响铃；没开就只会响铃 + 通知",
                     bad = false,
                     action = "去打开",
                     always = true,

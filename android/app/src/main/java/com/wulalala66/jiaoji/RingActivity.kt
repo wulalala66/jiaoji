@@ -89,8 +89,8 @@ class RingActivity : ComponentActivity() {
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        // 注意：这里千万不要 requestDismissKeyguard —— 那会让系统先弹「解锁」页面。
-        // showWhenLocked + turnScreenOn 已经足够让响铃页直接盖在锁屏上面。
+        // 优先靠 showWhenLocked + turnScreenOn 直接盖在锁屏上面（不给解锁弹窗）；
+        // 如果 ROM 无视它，1.2 秒后会用 requestDismissKeyguard 兜底（见下面的 postDelayed）。
         try {
             @Suppress("DEPRECATION")
             window.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
@@ -130,6 +130,21 @@ class RingActivity : ComponentActivity() {
                 )
             }
         }
+
+        // 兜底：有些国产 ROM 没给「锁屏显示」权限时会直接无视 showWhenLocked ——
+        // 页面其实已经起来了，但被锁屏盖住，用户只听到声音看不到界面。
+        // 1.2 秒还没拿到窗口焦点，就请求解锁把响铃页顶出来（有密码的话系统会先要解锁，
+        // 这是系统行为，去设置里把「锁屏显示」打开就不会再出现）。
+        handler.postDelayed({
+            if (!isFinishing && !isDestroyed && !hasWindowFocus()) {
+                try {
+                    AlarmLog.add(this, "锁屏挡住了响铃页，请求解锁")
+                    val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+                    km.requestDismissKeyguard(this, null)
+                } catch (_: Throwable) {
+                }
+            }
+        }, 1200L)
 
         // 10 分钟没人处理就自己停，避免一直响
         handler.postDelayed({
