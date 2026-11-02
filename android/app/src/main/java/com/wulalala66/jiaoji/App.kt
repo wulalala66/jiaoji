@@ -73,8 +73,8 @@ class App : Application() {
         } catch (e: Throwable) {
             AlarmLog.add(this, "✗ 服务启动失败 ${e.javaClass.simpleName}")
         }
-        // 进程在后台时拉不起 Activity，直接把响铃界面画成悬浮窗——黑屏也能看见
-        RingOverlay.show(this, key, title, body, "due")
+        // 进程在后台也要把界面弄到屏幕上：多路重试，最后兜底悬浮窗
+        RingLaunch.fire(this, key, title, body, "due")
         try {
             NotificationManagerCompat.from(this).notify(RingNotif.ID, RingNotif.build(this, key, title, body, "due"))
         } catch (_: Throwable) {

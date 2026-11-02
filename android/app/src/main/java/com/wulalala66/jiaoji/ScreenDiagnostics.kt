@@ -235,6 +235,12 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DiagButton("复制日志", false) {
+                        val text = AlarmLog.all(ctx).joinToString("\n")
+                        val cm = ctx.getSystemService(android.content.ClipboardManager::class.java)
+                        cm?.setPrimaryClip(android.content.ClipData.newPlainText("胶记日志", text))
+                        android.widget.Toast.makeText(ctx, "日志已复制，粘给我就行", android.widget.Toast.LENGTH_SHORT).show()
+                    }
                     DiagButton("重排闹钟", false) {
                         AlarmScheduler.sync(ctx, Repo.read(ctx))
                         tick++

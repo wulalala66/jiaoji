@@ -222,23 +222,27 @@ fun SettingsScreen(
                         SmallButton("去开启", true) { openOverlay(ctx) }
                     }
                 }
-                // Android 14 起「全屏通知」是单独的开关，没允许的话到点只有横幅、不会接管屏幕
-                if (!fsiOk) {
+                // Android 14 起「全屏通知」是单独的开关。系统读出来的值不一定准（ColorOS 上就报 true
+                // 却照样不接管屏幕），所以这一行常驻显示，方便随时点进去确认。
+                if (Build.VERSION.SDK_INT >= 34) {
                     Spacer(Modifier.height(10.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(
-                                "全屏通知未允许",
+                                if (fsiOk) "全屏通知已允许" else "全屏通知未允许",
                                 style = MaterialTheme.typography.titleSmall,
-                                color = Danger,
+                                color = if (fsiOk) Ink else Danger,
                             )
                             Text(
-                                "Android 14 起要单独允许，否则到点只弹横幅、不会全屏",
+                                if (fsiOk) "到点会直接接管屏幕；不对的话点「去确认」看一眼系统里的开关"
+                                else "不开的话到点只有横幅，不会全屏",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Ink3,
                             )
                         }
-                        SmallButton("允许", true) { OemHelper.openFullScreenIntentSettings(ctx) }
+                        SmallButton(if (fsiOk) "去确认" else "允许", true) {
+                            OemHelper.openFullScreenIntentSettings(ctx)
+                        }
                     }
                 }
                 // 电池优化白名单：系统清理后台时，加了白名单会稳很多（点一下就是系统自己的对话框）

@@ -321,7 +321,7 @@ object RingNotif {
             .setShowWhen(true)
             .setContentIntent(open)
         // 只有「到点」才全屏接管；提前提醒是横幅通知 + 提示音，别打断手上的活
-        if (kind == "due") {
+        if (kind == "due" || kind == "test") {
             b.setFullScreenIntent(open, true)
             b.addAction(action(ACTION_DONE, "已取出"))
             b.addAction(action(ACTION_SNOOZE, "延后 2 分钟"))
@@ -397,7 +397,7 @@ class AlarmReceiver : BroadcastReceiver() {
 
         // 2) 全屏响铃界面（锁屏也能亮屏）——到点 / 测试 / 权限申请才拉起，提前提醒只弹通知
         if (kind == "due" || kind == "test" || kind == "perm") {
-            RingNotif.launchRingActivity(context, key, title, body, kind)
+            RingLaunch.fire(context, key, title, body, kind)
         }
 
         // 3) 通知兜底（用户可能把界面划掉，通知栏里还能操作）
@@ -477,17 +477,6 @@ class RingService : Service() {
             AlarmLog.add(this, "声音开关是关的，跳过铃声")
         }
         if ((kind == "due" || testing) && (s.settings.vibrate || testing)) startVibrate()
-
-        // 响铃页没起来（ROM 拦了后台启动）→ 用悬浮窗把界面画出来。
-        // 悬浮窗不经过 Activity 启动限制，黑屏也能显示；Activity 真起来了 onResume 会把它收掉。
-        if (kind == "due" || kind == "test") {
-            handler.postDelayed({
-                if (!RingActivity.alive && !RingOverlay.isShown()) {
-                    AlarmLog.add(this, "响铃页没起来，改用悬浮窗")
-                    RingOverlay.show(this, key, title, body, kind)
-                }
-            }, 1_800L)
-        }
 
         // 提前提醒响两声就停（20 秒），到点铃声一直响到用户确认
         val stopAfter = when {
