@@ -73,11 +73,13 @@ fun SettingsScreen(
     var confirmDeleteType by remember { mutableStateOf<String?>(null) }
     var alarmGranted by remember { mutableStateOf(AlarmScheduler.canExact(ctx)) }
     var notifOn by remember { mutableStateOf(NotificationManagerCompat.from(ctx).areNotificationsEnabled()) }
+    var lockOk by remember { mutableStateOf(lockScreenOk(ctx)) }
 
     // 用户去系统设置里开了权限再回来，这里要重新读一次，不然一直显示「未开启」
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         notifOn = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
         alarmGranted = AlarmScheduler.canExact(ctx)
+        lockOk = lockScreenOk(ctx)
     }
 
     LazyColumn(
@@ -89,6 +91,18 @@ fun SettingsScreen(
                 Text("设置", style = MaterialTheme.typography.displaySmall, color = Ink)
                 Spacer(Modifier.height(2.dp))
                 Text("提醒、产品类型、客户、数据备份", style = MaterialTheme.typography.bodyMedium, color = Ink3)
+            }
+        }
+
+        item { SectionHeader("工具") }
+
+        item {
+            AppCard {
+                ToolRow("⚖️", "比重计算器", "输 M1~M6，出比重 / 固体成分 / 发泡率", onOpenDensity)
+                ThinDivider()
+                ToolRow("📋", "产品条件表", "${state.products.size} 条 · 哪个客户烤多少度多久", onOpenProducts)
+                ThinDivider()
+                ToolRow("⚗️", "配料", "${state.formulas.size} 个配方 · 克数和百分比自动换算", onOpenFormulas)
             }
         }
 
@@ -174,6 +188,24 @@ fun SettingsScreen(
                         }
                     }
                 }
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (lockOk) "锁屏显示已开启" else "锁屏显示未开启",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = if (lockOk) Ink else Danger,
+                        )
+                        Text(
+                            if (lockOk) "黑屏到点会直接全屏响铃" else "不开启的话，黑屏到点会先让你解锁再响铃",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Ink3,
+                        )
+                    }
+                    if (!lockOk) {
+                        SmallButton("去开启") { openOverlay(ctx) }
+                    }
+                }
             }
         }
 
@@ -254,18 +286,6 @@ fun SettingsScreen(
                         }
                     }
                 }
-            }
-        }
-
-        item { SectionHeader("工具") }
-
-        item {
-            AppCard {
-                ToolRow("⚖️", "比重计算器", "输 M1~M6，出比重 / 固体成分 / 发泡率", onOpenDensity)
-                ThinDivider()
-                ToolRow("📋", "产品条件表", "${state.products.size} 条 · 哪个客户烤多少度多久", onOpenProducts)
-                ThinDivider()
-                ToolRow("⚗️", "配料", "${state.formulas.size} 个配方 · 克数和百分比自动换算", onOpenFormulas)
             }
         }
 
@@ -576,7 +596,7 @@ private fun ImportDialog(onDismiss: () -> Unit, onOk: (String) -> Unit) {
 }
 
 @Composable
-private fun ToolRow(emoji: String, title: String, sub: String, onClick: () -> Unit) {
+fun ToolRow(emoji: String, title: String, sub: String, onClick: () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -595,4 +615,10 @@ private fun ToolRow(emoji: String, title: String, sub: String, onClick: () -> Un
         }
         Text("›", color = Ink3, fontSize = 18.sp)
     }
+}
+
+private fun lockScreenOk(ctx: android.content.Context): Boolean = try {
+    android.provider.Settings.canDrawOverlays(ctx)
+} catch (_: Throwable) {
+    true
 }

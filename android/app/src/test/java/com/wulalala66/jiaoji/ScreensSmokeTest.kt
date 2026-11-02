@@ -105,6 +105,11 @@ class ScreensSmokeTest {
     }
 
     @Test
+    fun toolsScreen() = smoke { s, _ ->
+        ToolsScreen(s, {}, {}, {}, {}, {})
+    }
+
+    @Test
     fun densityScreen() = smoke { _, _ -> DensityScreen({}) }
 
     @Test

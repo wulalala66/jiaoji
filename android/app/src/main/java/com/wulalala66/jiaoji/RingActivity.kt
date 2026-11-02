@@ -89,9 +89,11 @@ class RingActivity : ComponentActivity() {
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        // 注意：这里千万不要 requestDismissKeyguard —— 那会让系统先弹「解锁」页面。
+        // showWhenLocked + turnScreenOn 已经足够让响铃页直接盖在锁屏上面。
         try {
-            val km = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-            if (Build.VERSION.SDK_INT >= 26) km.requestDismissKeyguard(this, null)
+            @Suppress("DEPRECATION")
+            window.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
         } catch (_: Throwable) {
         }
 

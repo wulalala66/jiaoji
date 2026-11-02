@@ -88,6 +88,12 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
     } catch (_: Throwable) {
         true
     }
+    // 悬浮窗/锁屏显示：很多国产 ROM 用它控制「黑屏时能不能直接盖在锁屏上」
+    val lockOk = try {
+        Settings.canDrawOverlays(ctx)
+    } catch (_: Throwable) {
+        true
+    }
     val volume = try {
         val am = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val cur = am.getStreamVolume(AudioManager.STREAM_ALARM)
@@ -141,6 +147,8 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
                 CheckRow("精确闹钟", exactOk, "去允许") { openExactAlarm(ctx) }
                 ThinDivider()
                 CheckRow("全屏提醒", fsiOk, "去允许") { openFullScreen(ctx) }
+                ThinDivider()
+                CheckRow("锁屏显示", lockOk, "去开启") { openOverlay(ctx) }
                 ThinDivider()
                 CheckRow("后台不受限制", battOk, "去设置") { openBattery(ctx) }
                 ThinDivider()
@@ -335,6 +343,18 @@ fun openFullScreen(ctx: Context) {
         }
         ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     } catch (_: Throwable) {
+    }
+}
+
+fun openOverlay(ctx: Context) {
+    try {
+        val i = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + ctx.packageName))
+        ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (_: Throwable) {
+        try {
+            ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + ctx.packageName)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: Throwable) {
+        }
     }
 }
 

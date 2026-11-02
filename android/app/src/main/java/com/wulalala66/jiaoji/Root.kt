@@ -31,7 +31,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -66,6 +66,7 @@ sealed interface Screen {
     data class BakeForm(val bakeId: String? = null, val sampleId: String? = null, val oven: String = "door") : Screen
     data class TypeEditor(val typeId: String? = null) : Screen
     data object Diagnostics : Screen
+    data object Tools : Screen
     data object Density : Screen
     data object Products : Screen
     data object Formulas : Screen
@@ -176,14 +177,23 @@ fun Root() {
                     onOpenFormulas = { screen = Screen.Formulas },
                 )
 
-                is Screen.Density -> DensityScreen(onBack = { screen = Screen.Settings })
+                is Screen.Tools -> ToolsScreen(
+                    state = state,
+                    onOpenRecords = { screen = Screen.Records },
+                    onOpenDensity = { screen = Screen.Density },
+                    onOpenProducts = { screen = Screen.Products },
+                    onOpenFormulas = { screen = Screen.Formulas },
+                    onOpenDiagnostics = { screen = Screen.Diagnostics },
+                )
 
-                is Screen.Products -> ProductsScreen(state = state, onBack = { screen = Screen.Settings })
+                is Screen.Density -> DensityScreen(onBack = { screen = Screen.Tools })
+
+                is Screen.Products -> ProductsScreen(state = state, onBack = { screen = Screen.Tools })
 
                 is Screen.Formulas -> FormulasScreen(
                     state = state,
                     onOpen = { screen = Screen.FormulaEditor(it) },
-                    onBack = { screen = Screen.Settings },
+                    onBack = { screen = Screen.Tools },
                 )
 
                 is Screen.FormulaEditor -> FormulaEditorScreen(
@@ -304,7 +314,7 @@ private fun BottomBar(current: Screen, onSelect: (Screen) -> Unit, onAdd: () -> 
                     }
                 }
             }
-            TabItem("记录", Icons.Filled.List, current is Screen.Records) { onSelect(Screen.Records) }
+            TabItem("工具", Icons.Filled.Build, current is Screen.Tools) { onSelect(Screen.Tools) }
             TabItem("设置", Icons.Filled.Settings, current is Screen.Settings) { onSelect(Screen.Settings) }
         }
     }
