@@ -358,11 +358,11 @@ class RepoTest {
     @Test
     fun productCrud() {
         assertEquals("16 条默认产品", 16, state().products.size)
-        val id = Repo.I.addProduct("测试客户", listOf(BakePreset("p1", 155, 30)))!!
+        val id = Repo.I.addProduct("测试客户", listOf(BakePreset(155, 30)))!!
         assertNotNull(state().productOf(id))
         assertEquals(155, state().productOf(id)!!.bakes.first().tempC)
 
-        Repo.I.updateProduct(id, "测试客户2", listOf(BakePreset("p2", 170, 20), BakePreset("p3", 210, 20)))
+        Repo.I.updateProduct(id, "测试客户2", listOf(BakePreset(170, 20), BakePreset(210, 20)))
         assertEquals("测试客户2", state().productOf(id)!!.name)
         assertEquals(2, state().productOf(id)!!.bakes.size)
 

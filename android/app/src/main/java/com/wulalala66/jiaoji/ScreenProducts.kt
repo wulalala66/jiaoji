@@ -124,7 +124,7 @@ private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf(existing?.name ?: "") }
     val rows = remember {
         mutableStateListOf<PresetRow>().apply {
-            existing?.bakes?.forEach { add(PresetRow(it.id, "${it.tempC}", "${it.minutes}")) }
+            existing?.bakes?.forEach { add(PresetRow(Repo.uid(), "${it.tempC}", "${it.minutes}")) }
             if (isEmpty()) add(PresetRow(Repo.uid(), "140", "30"))
         }
     }
@@ -190,7 +190,7 @@ private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
                     val bakes = rows.mapNotNull { r ->
                         val t = r.temp.trim().toIntOrNull() ?: return@mapNotNull null
                         val m = r.min.trim().toIntOrNull() ?: return@mapNotNull null
-                        if (t in 30..300 && m in 1..600) BakePreset(r.id, t, m, "") else null
+                        if (t in 30..300 && m in 1..600) BakePreset(t, m) else null
                     }
                     if (existing == null) Repo.I.addProduct(name.trim(), bakes)
                     else Repo.I.updateProduct(existing.id, name.trim(), bakes)
