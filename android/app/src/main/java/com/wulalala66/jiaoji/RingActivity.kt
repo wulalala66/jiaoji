@@ -61,6 +61,11 @@ class RingActivity : ComponentActivity() {
         private const val EXTRA_BODY = "body"
         private const val EXTRA_KIND = "kind"
 
+        /** 响铃页是否真的到前台了：RingService 靠它判断要不要重试（ROM 拦后台弹窗时就是 false） */
+        @Volatile
+        var alive: Boolean = false
+            private set
+
         fun intent(ctx: Context, key: String, title: String, body: String, kind: String): Intent =
             Intent(ctx, RingActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or
@@ -153,7 +158,14 @@ class RingActivity : ComponentActivity() {
         }, 10 * 60_000L)
     }
 
+    override fun onResume() {
+        super.onResume()
+        alive = true
+        AlarmLog.add(this, "响铃页到前台")
+    }
+
     override fun onDestroy() {
+        alive = false
         handler.removeCallbacksAndMessages(null)
         super.onDestroy()
     }

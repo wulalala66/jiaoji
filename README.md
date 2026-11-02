@@ -89,6 +89,7 @@ android/                         原生 App
     ToolsScreen.kt               工具（记录与导出 / 比重计算器 / 产品条件表 / 配料 / 自检）
     ScreenDiagnostics.kt         自检与诊断（权限 / 闹钟 / 日志 / 点击自测）
     FormulaSheet.kt              配料单导出（A4 PDF + xlsx，无第三方库）
+    OemHelper.kt                 国产 ROM 权限页跳转（ColorOS/MIUI/EMUI/vivo）
     Components.kt Theme.kt Share.kt MainActivity.kt App.kt
 
 android/app/src/test/            Robolectric 测试（每屏冒烟 + 点击链路 + 闹钟排定）
@@ -123,6 +124,15 @@ index.html  css/  js/  public/   网页版（PWA）
 - 默认 16 条（车间那张「产品 - 烘烤条件」表），一个产品可以有多组条件（比如润金泽 150℃×30 分和 170℃×20 分）。
 - 「放进烘箱」页有「按客户选一下，自动填温度时长」，选完还能手改。
 - 设置 → 工具 → 产品条件表 里增删改，支持按产品名 / 客户名 / 温度搜索。
+
+### 黑屏不弹响铃页？（ColorOS / MIUI / EMUI / vivo）
+
+到点只有声音、屏幕不亮、或者亮屏了停在解锁界面，基本是系统没给「后台弹出界面」这类权限。国产 ROM 没有统一的申请弹窗，只能自己去设置里打开，App 里给了直达入口：
+
+- 「设置 → 提醒 → 允许后台弹出界面 / 自启动 / 电池不限制」三个按钮，点了直接跳到对应的系统页面（ColorOS 会先试 `com.coloros.safecenter` 的悬浮窗列表和权限管理页，打不开就退到安全中心首页，再不行退到应用详情页）。
+- ColorOS 16 手动路径：设置 → 应用管理 → 胶记 → 权限 → **允许后台弹出界面**（这项不开，黑屏时响铃页一定弹不出来）；再把「自启动」打开，电池里选「不限制」。
+- 到点响铃时 App 会做三件事：`setAlarmClock` 让系统把设备唤醒 → 前台服务持有 `SCREEN_BRIGHT_WAKE_LOCK` 把屏幕点亮 → 通过 `PendingIntent` 拉起全屏响铃页；1.5 秒和 4 秒后各检查一次响铃页有没有真的到前台，没到就重试并把原因写进「自检与诊断」的日志里。
+- 「设置 → 提醒 → 锁屏显示 → 试一下」会排一个 10 秒后的闹钟，用来当场触发系统的授权弹窗。
 
 ### 配料
 

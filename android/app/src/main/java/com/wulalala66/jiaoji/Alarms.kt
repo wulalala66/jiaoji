@@ -415,11 +415,26 @@ class RingService : Service() {
                 putExtra("kind", kind)
                 putExtra("autoStopMs", autoStopMs)
             }
+
+        /** 响铃页没起来就再拉一次；起来了就只记一笔 */
+        fun ensureRingUi(ctx: Context, key: String, title: String, body: String, kind: String, attempt: Int) {
+            if (RingActivity.alive) {
+                if (attempt == 0) AlarmLog.add(ctx, "响铃页已在前台")
+                return
+            }
+            AlarmLog.add(
+                ctx,
+                if (attempt == 0) "响铃页没弹出来，再拉一次"
+                else "✗ 响铃页还是没弹出来：去设置给「后台弹出界面」和「锁屏显示」",
+            )
+            RingNotif.launchRingActivity(ctx, key, title, body, kind)
+        }
     }
 
     private var player: MediaPlayer? = null
     private var vibrator: Vibrator? = null
     private var wake: PowerManager.WakeLock? = null
+    private var screenWake: PowerManager.WakeLock? = null
     private val handler = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -446,6 +461,14 @@ class RingService : Service() {
         }
 
         acquireWake()
+        // 到点这一下：先自己把屏幕点着，再拉一次响铃页；如果 1.5 秒 / 4 秒后它还没到前台
+        // （ColorOS 没给「后台弹出界面」时就会这样），再重试并记日志。
+        if (kind == "due" || kind == "test") {
+            acquireScreenWake()
+            RingNotif.launchRingActivity(this, key, title, body, kind)
+            handler.postDelayed({ ensureRingUi(this, key, title, body, kind, 0) }, 1_500L)
+            handler.postDelayed({ ensureRingUi(this, key, title, body, kind, 1) }, 4_000L)
+        }
         val s = Repo.read(this)
         val testing = kind == "test"
         if (s.settings.sound || testing) {
@@ -480,6 +503,36 @@ class RingService : Service() {
         } catch (e: Throwable) {
             AlarmLog.add(this, "✗ 唤醒锁失败 ${e.javaClass.simpleName}")
         }
+    }
+
+    /** 把屏幕点着（黑屏时纯 PARTIAL_WAKE_LOCK 只保 CPU，屏幕还是黑的） */
+    @Suppress("DEPRECATION")
+    private fun acquireScreenWake() {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (screenWake == null) {
+                screenWake = pm.newWakeLock(
+                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                        PowerManager.ACQUIRE_CAUSES_WAKEUP or
+                        PowerManager.ON_AFTER_RELEASE,
+                    "jiaoji:screen",
+                ).apply { setReferenceCounted(false) }
+            }
+            if (screenWake?.isHeld != true) {
+                screenWake?.acquire(90_000L)
+                AlarmLog.add(this, "点亮屏幕")
+            }
+        } catch (e: Throwable) {
+            AlarmLog.add(this, "✗ 点亮屏幕失败 ${e.javaClass.simpleName}")
+        }
+    }
+
+    private fun releaseScreenWake() {
+        try {
+            if (screenWake?.isHeld == true) screenWake?.release()
+        } catch (_: Throwable) {
+        }
+        screenWake = null
     }
 
     /** mode = "alarm"（到点）| "chime"（提前提醒） */
@@ -605,6 +658,7 @@ class RingService : Service() {
         } catch (_: Throwable) {
         }
         wake = null
+        releaseScreenWake()
         super.onDestroy()
     }
 }

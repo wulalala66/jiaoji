@@ -133,7 +133,7 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
             SectionHeader("环境")
             AppCard {
                 KeyValue("设备", "${Build.MANUFACTURER} ${Build.MODEL}")
-                KeyValue("系统", "Android ${Build.VERSION.RELEASE}（API ${Build.VERSION.SDK_INT}）")
+                KeyValue("系统", "Android ${Build.VERSION.RELEASE}（API ${Build.VERSION.SDK_INT}）· ${OemHelper.romName()}")
                 KeyValue("屏幕", "${screenW}×${screenH} dp · ${densityTxt}x")
                 KeyValue("字体缩放", fontScaleTxt)
                 KeyValue("深色模式", if (dark) "是" else "否")
@@ -151,6 +151,10 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
                 CheckRow("悬浮窗", lockOk, "去开启") { openOverlay(ctx) }
                 ThinDivider()
                 CheckRow("后台不受限制", battOk, "去设置") { openBattery(ctx) }
+                ThinDivider()
+                CheckRow("后台弹出界面", false, "去开启") { OemHelper.openBackgroundPopup(ctx) }
+                ThinDivider()
+                CheckRow("自启动", false, "去开启") { OemHelper.openAutoStart(ctx) }
                 ThinDivider()
                 KeyValue("响铃开关", if (state.settings.sound) "开" else "关")
                 KeyValue("振动开关", if (state.settings.vibrate) "开" else "关")
@@ -208,6 +212,10 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
                     }
                     DiagButton("全屏响铃页", false) {
                         RingNotif.launchRingActivity(ctx, "test:", "测试全屏提醒", "这就是到点时的样子", "pre")
+                        tick++
+                    }
+                    DiagButton("10 秒后响铃", false) {
+                        AlarmScheduler.scheduleTest(ctx, 10)
                         tick++
                     }
                 }

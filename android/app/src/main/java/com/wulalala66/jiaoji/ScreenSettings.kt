@@ -72,6 +72,7 @@ fun SettingsScreen(
     var notifOn by remember { mutableStateOf(NotificationManagerCompat.from(ctx).areNotificationsEnabled()) }
     var overlayOn by remember { mutableStateOf(overlayOk(ctx)) }
     var battOk by remember { mutableStateOf(ignoreBattOk(ctx)) }
+    var fsiOk by remember { mutableStateOf(OemHelper.canUseFullScreenIntent(ctx)) }
 
     // 用户去系统设置里开了权限再回来，这里要重新读一次，不然一直显示「未开启」
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
@@ -79,6 +80,7 @@ fun SettingsScreen(
         alarmGranted = AlarmScheduler.canExact(ctx)
         overlayOn = overlayOk(ctx)
         battOk = ignoreBattOk(ctx)
+        fsiOk = OemHelper.canUseFullScreenIntent(ctx)
     }
 
     LazyColumn(
@@ -181,6 +183,7 @@ fun SettingsScreen(
                     Text("锁屏显示", style = MaterialTheme.typography.titleSmall, color = Ink)
                     Text(
                         if (testQueued) "已排好：10 秒后响铃。现在把手机锁屏，到点会亮屏并弹出响铃页；系统问「允许在锁屏上显示」就点允许。"
+                        else if (OemHelper.isColorOs) "OPPO / 一加 / realme 还要把下面的「允许后台弹出界面」打开，否则黑屏时只有声音。点「试一下」排一个 10 秒后的闹钟，先把手机锁屏。"
                         else "第一次到点响铃时，系统会自己弹「允许在锁屏上显示」，点允许之后就一直有效。想现在就申请，点「试一下」——10 秒后响铃，先把手机锁屏。",
                         style = MaterialTheme.typography.bodySmall,
                         color = if (testQueued) Brand else Ink3,
@@ -208,6 +211,33 @@ fun SettingsScreen(
                     bad = !battOk,
                     action = "去设置",
                 ) { openBattery(ctx) }
+                if (OemHelper.isColorOs || OemHelper.isMiui || OemHelper.isVivo || OemHelper.isEmui) {
+                    Spacer(Modifier.height(10.dp))
+                    PermRow(
+                        title = "允许后台弹出界面",
+                        sub = "${OemHelper.romName()}：不开这个，黑屏时响铃页弹不出来",
+                        bad = true,
+                        action = "去开启",
+                        always = true,
+                    ) { OemHelper.openBackgroundPopup(ctx) }
+                    Spacer(Modifier.height(10.dp))
+                    PermRow(
+                        title = "自启动 / 后台活动",
+                        sub = "防止系统把胶记从后台清掉",
+                        bad = false,
+                        action = "去开启",
+                    ) { OemHelper.openAutoStart(ctx) }
+                }
+                if (!fsiOk) {
+                    Spacer(Modifier.height(10.dp))
+                    PermRow(
+                        title = "全屏通知未允许",
+                        sub = "Android 14 起全屏响铃要单独授权",
+                        bad = true,
+                        action = "去允许",
+                        always = true,
+                    ) { OemHelper.openFullScreenIntentSettings(ctx) }
+                }
             }
         }
 
