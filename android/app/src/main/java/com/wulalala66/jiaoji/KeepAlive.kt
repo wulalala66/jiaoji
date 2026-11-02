@@ -18,13 +18,14 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 
 /**
- * 常驻通知：只要还有计时 / 待取样任务，就在状态栏挂一条「胶记在守时」。
+ * 常驻通知（锁屏也能看到）：显示最近一个计时还剩多久、是哪个烘箱、哪支样品。
  *
- * 两个作用：
+ * 三个作用：
  *  1. 前台服务优先级高，ColorOS 之类不会轻易把进程回收掉，进程内每秒的到点检查才能一直跑；
- *  2. 用户下拉状态栏就能看到还有几个计时、下一个什么时候到。
+ *  2. 锁屏界面直接看到倒计时（用系统计时器渲染，不用自己每秒刷新，省电且不会跳）；
+ *  3. 下拉状态栏就知道还有几个计时、下一个什么时候到。
  *
- * 没有任务时会自己停掉，不会一直占着通知栏。
+ * 设置里可以关掉（「状态栏常驻通知」）。
  */
 class KeepAliveService : Service() {
 
@@ -42,8 +43,8 @@ class KeepAliveService : Service() {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
             val nm = ctx.getSystemService(NotificationManager::class.java) ?: return
             if (nm.getNotificationChannel(CHANNEL) != null) return
-            val ch = NotificationChannel(CHANNEL, "守时（常驻）", NotificationManager.IMPORTANCE_LOW)
-            ch.description = "还有计时或待取样任务时显示，方便看进度，也让系统别把胶记回收掉"
+            val ch = NotificationChannel(CHANNEL, "倒计时（常驻）", NotificationManager.IMPORTANCE_LOW)
+            ch.description = "锁屏和状态栏常驻一条倒计时，能看是哪个烘箱、还剩多久"
             ch.setShowBadge(false)
             ch.lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             nm.createNotificationChannel(ch)
@@ -111,54 +112,94 @@ class KeepAliveService : Service() {
     private fun build(): Notification {
         val s = Repo.read(this)
         val now = System.currentTimeMillis()
-        val bakes = s.bakes.filter { it.status != "done" && it.endAt > now }.sortedBy { it.endAt }
-        val tasks = s.sampling.filter { it.status == "pending" && it.dueAt > now }.sortedBy { it.dueAt }
+        val bakes = s.bakes.filter { it.status != "done" }.sortedBy { it.endAt }
+        val tasks = s.sampling.filter { it.status == "pending" }.sortedBy { it.dueAt }
 
-        val title = when {
-            bakes.isNotEmpty() && tasks.isNotEmpty() -> "${bakes.size} 个计时 · ${tasks.size} 个取样"
-            bakes.isNotEmpty() -> "${bakes.size} 个烘箱计时在跑"
-            tasks.isNotEmpty() -> "${tasks.size} 个取样提醒"
-            else -> "胶记在守时"
+        val bake = bakes.firstOrNull { it.endAt > now }
+        val overdue = bakes.firstOrNull { it.endAt <= now }
+        val task = tasks.firstOrNull { it.dueAt > now }
+
+        val title: String
+        val text: String
+        var whenAt = 0L
+        var countdown = false
+
+        when {
+            bake != null -> {
+                title = "${s.ovenName(bake.oven)} · ${bake.label.ifBlank { "样品" }}"
+                val extra = bakes.size - 1
+                text = buildString {
+                    append("${bake.tempC}℃ ${bake.minutes} 分")
+                    append(" · ${Fmt.hm(bake.endAt)} 出炉")
+                    if (extra > 0) append(" · 另有 $extra 个计时")
+                }
+                whenAt = bake.endAt
+                countdown = true
+            }
+
+            overdue != null -> {
+                title = "${s.ovenName(overdue.oven)} · 已到点"
+                text = "${overdue.label.ifBlank { "样品" }} 该取出来了 · ${Fmt.hm(overdue.endAt)} 到点"
+            }
+
+            task != null -> {
+                title = "取样 · ${task.customer}"
+                val typeName = s.types.firstOrNull { it.id == task.typeId }?.name ?: ""
+                text = buildString {
+                    append("${Fmt.hm(task.dueAt)} 去取样")
+                    if (typeName.isNotBlank()) append(" · $typeName")
+                    val extra = tasks.size - 1
+                    if (extra > 0) append(" · 另有 $extra 个")
+                }
+                whenAt = task.dueAt
+                countdown = true
+            }
+
+            else -> {
+                title = "胶记 · 空闲"
+                text = "没有在跑的计时，到点会响铃"
+            }
         }
-
-        val next = listOfNotNull(
-            bakes.firstOrNull()?.let { "最近 ${Fmt.hm(it.endAt)} 出炉" },
-            tasks.firstOrNull()?.let { "下次取样 ${Fmt.hm(it.dueAt)}" },
-        ).joinToString(" · ")
 
         val open = PendingIntent.getActivity(
             this, 7711,
             Intent(this, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(MainActivity.EXTRA_TAB, if (bakes.isNotEmpty() || overdue != null) "ovens" else "today")
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        return NotificationCompat.Builder(this, CHANNEL)
+        val b = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_timer)
             .setContentTitle(title)
-            .setContentText(next.ifEmpty { "到点会响铃，别关掉" })
+            .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
-            .setShowWhen(false)
             .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .build()
+
+        if (countdown && whenAt > now) {
+            // 交给系统自己走秒：锁屏上也能实时看到 12:34 → 12:33，不用 App 每秒刷新
+            b.setUsesChronometer(true)
+            b.setChronometerCountDown(true)
+            b.setWhen(whenAt)
+            b.setShowWhen(true)
+        } else {
+            b.setShowWhen(false)
+        }
+        return b.build()
     }
 }
 
 object KeepAlive {
 
-    /** 有在跑的计时或今天还没到点的取样，就值得挂常驻通知 */
-    fun shouldRun(s: AppState): Boolean {
-        if (!s.settings.keepAlive) return false
-        val now = System.currentTimeMillis()
-        val bake = s.bakes.any { it.status != "done" && it.endAt > now }
-        val task = s.sampling.any { it.status == "pending" && it.dueAt > now }
-        return bake || task
-    }
+    /** 常驻就真的常驻：只要设置里开着就挂一条（没任务时显示「空闲」） */
+    fun shouldRun(s: AppState): Boolean = s.settings.keepAlive
 
     fun sync(ctx: Context, s: AppState) {
         val want = shouldRun(s)

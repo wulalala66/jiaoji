@@ -141,8 +141,8 @@ fun SettingsScreen(
                     Repo.I.updateSettings { it.copy(keepAwake = v) }
                 }
                 ToggleRow(
-                    "状态栏常驻通知",
-                    "有计时时在通知栏挂一条进度，系统不容易把胶记杀掉；没任务会自动消失",
+                    "锁屏倒计时（常驻通知）",
+                    "锁屏和状态栏常挂一条倒计时，能看是哪个烘箱、还剩多久；也让系统不容易把胶记杀掉",
                     s.keepAlive,
                 ) { v ->
                     Repo.I.updateSettings { it.copy(keepAlive = v) }
