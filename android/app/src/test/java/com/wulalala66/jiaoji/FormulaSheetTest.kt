@@ -73,8 +73,9 @@ class FormulaSheetTest {
         assertTrue("缺合计行", sheet.contains("合计"))
         assertTrue("缺原料名", sheet.contains("D1NP"))
         assertTrue("缺检测项目列", sheet.contains("压流粘度"))
-        // 26.33% × 600 g = 158.00 g
-        assertTrue("克数没算对", sheet.contains("158"))
+        // 26.33% × 600 g = 157.98 g（按模型算，不写死）
+        val g = String.format(java.util.Locale.US, "%.2f", f.gramsOf(f.items.first()))
+        assertTrue("克数没算对：$g", sheet.contains(g))
         assertTrue("百分比丢了", sheet.contains("26.33"))
         // 标题合并单元格
         assertTrue(sheet.contains("A1:F1"))
