@@ -119,6 +119,10 @@ data class Formula(
     var totalG: Double = 600.0,
     var items: MutableList<FormulaItem> = mutableListOf(),
     var note: String = "",
+    /** 打印用的「实验目的」，比如「降低粘度」 */
+    var purpose: String = "",
+    /** 打印用的「固化温度」，比如「140*30」 */
+    var cure: String = "",
 ) {
     fun sumPercent(): Double = items.sumOf { it.percent }
     fun gramsOf(it: FormulaItem): Double = it.percent * totalG / 100.0
@@ -398,6 +402,8 @@ object Codec {
             s.formulas.forEach { f ->
                 put(JSONObject().apply {
                     put("id", f.id); put("name", f.name); put("totalG", f.totalG); put("note", f.note)
+                    if (f.purpose.isNotEmpty()) put("purpose", f.purpose)
+                    if (f.cure.isNotEmpty()) put("cure", f.cure)
                     put("items", JSONArray().apply {
                         f.items.forEach { it2 ->
                             put(JSONObject().apply {
@@ -532,6 +538,8 @@ object Codec {
                     name = j.optString("name", "未命名配方"),
                     totalG = j.optDouble("totalG", 600.0),
                     note = j.optString("note", ""),
+                    purpose = j.optString("purpose", ""),
+                    cure = j.optString("cure", ""),
                 )
                 j.optJSONArray("items")?.let { its ->
                     for (k in 0 until its.length()) {

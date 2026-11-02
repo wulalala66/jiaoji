@@ -6,6 +6,22 @@ import androidx.core.content.FileProvider
 import java.io.File
 
 object Share {
+    /** 把已经生成好的文件（PDF / xlsx）发出去，系统会列出微信、邮件、打印等接收方 */
+    fun file(ctx: Context, file: File, mime: String, title: String) {
+        try {
+            val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".files", file)
+            val i = Intent(Intent.ACTION_SEND).apply {
+                type = mime
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, file.name)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            ctx.startActivity(Intent.createChooser(i, title).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            text(ctx, title, "生成的文件在：${file.absolutePath}")
+        }
+    }
+
     fun text(ctx: Context, subject: String, body: String) {
         val i = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"

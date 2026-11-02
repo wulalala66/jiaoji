@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import java.util.Locale
@@ -185,6 +186,38 @@ fun FormulaEditorScreen(state: AppState, formulaId: String, onBack: () -> Unit) 
                 }
             }
 
+            Spacer(Modifier.height(10.dp))
+            val ctx = LocalContext.current
+            val purposeState = rememberLocalText(f.purpose, f.id + "-p") { v ->
+                Repo.I.updateFormula(f.id) { it.purpose = v }
+            }
+            val cureState = rememberLocalText(f.cure, f.id + "-c") { v ->
+                Repo.I.updateFormula(f.id) { it.cure = v }
+            }
+            AppCard {
+                Text("配料单表头", style = MaterialTheme.typography.labelSmall, color = Ink3)
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = purposeState.value,
+                    onValueChange = { purposeState.value = it },
+                    placeholder = { Text("实验目的，比如 降低粘度", style = MaterialTheme.typography.bodyMedium, color = Ink3) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    colors = fieldColors(),
+                )
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = cureState.value,
+                    onValueChange = { cureState.value = it },
+                    placeholder = { Text("固化温度，比如 140*30", style = MaterialTheme.typography.bodyMedium, color = Ink3) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    colors = fieldColors(),
+                )
+            }
+
             Spacer(Modifier.height(12.dp))
             SectionHeader("原料")
             Spacer(Modifier.height(4.dp))
@@ -222,6 +255,40 @@ fun FormulaEditorScreen(state: AppState, formulaId: String, onBack: () -> Unit) 
                             }
                         }
                     }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+            SectionHeader("打印 / 导出")
+            Spacer(Modifier.height(4.dp))
+            AppCard {
+                Text(
+                    "照实验室那张 A4 表格排：左边原材料和用量，右边检测项目。导出后可以发到微信/邮件，或用手机自带的打印。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Ink2,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            val file = FormulaSheet.pdfFile(ctx, f)
+                            if (file != null) Share.file(ctx, file, "application/pdf", "打印配料单")
+                            else android.widget.Toast.makeText(ctx, "生成 PDF 失败", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Brand),
+                    ) { Text("打印 / 存 PDF") }
+                    OutlinedButton(
+                        onClick = {
+                            val file = FormulaSheet.xlsxFile(ctx, f)
+                            if (file != null) Share.file(
+                                ctx, file,
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                "导出 Excel",
+                            ) else android.widget.Toast.makeText(ctx, "生成 Excel 失败", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("导出 Excel") }
                 }
             }
 
