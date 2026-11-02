@@ -176,13 +176,24 @@ fun SettingsScreen(
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                PermRow(
-                    title = "锁屏显示",
-                    sub = "要在系统里手动打开（安卓没有申请弹窗）。开了黑屏到点直接全屏响铃；没开就只会响铃 + 通知",
-                    bad = false,
-                    action = "去开启",
-                    always = true,
-                ) { openLockScreenSettings(ctx) }
+                var testQueued by remember { mutableStateOf(false) }
+                Column {
+                    Text("锁屏显示", style = MaterialTheme.typography.titleSmall, color = Ink)
+                    Text(
+                        if (testQueued) "已排好：10 秒后响铃。现在把手机锁屏，到点会亮屏并弹出响铃页；系统问「允许在锁屏上显示」就点允许。"
+                        else "第一次到点响铃时，系统会自己弹「允许在锁屏上显示」，点允许之后就一直有效。想现在就申请，点「试一下」——10 秒后响铃，先把手机锁屏。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (testQueued) Brand else Ink3,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SmallButton("试一下", true) {
+                            AlarmScheduler.scheduleTest(ctx, 10)
+                            testQueued = true
+                        }
+                        SmallButton("去系统设置") { openLockScreenSettings(ctx) }
+                    }
+                }
                 Spacer(Modifier.height(10.dp))
                 PermRow(
                     title = if (overlayOn) "悬浮窗已开启" else "悬浮窗未开启",

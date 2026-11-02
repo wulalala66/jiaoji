@@ -75,6 +75,43 @@ private data class AlarmItem(val at: Long, val title: String, val body: String, 
 object AlarmScheduler {
 
     const val ACTION_ALARM = "com.wulalala66.jiaoji.ALARM"
+
+    /**
+     * 立刻排一个 10 秒后的「真闹钟」，走和真实到点完全一样的路径：
+     * AlarmManager → AlarmReceiver → 前台服务（响铃）+ 全屏响铃页 + 通知。
+     * 用来在设置页里当场申请/验证「锁屏显示」——很多 ROM 第一次把界面盖到锁屏上时
+     * 会自己弹「允许在锁屏上显示」，点允许就长期生效了。
+     */
+    fun scheduleTest(ctx: Context, seconds: Int = 10) {
+        val am = ctx.getSystemService(AlarmManager::class.java) ?: return
+        val at = System.currentTimeMillis() + seconds * 1000L
+        val i = Intent(ctx, AlarmReceiver::class.java).apply {
+            action = ACTION_ALARM
+            data = Uri.parse("jiaoji://alarm/test:lock")
+            putExtra("key", "test:lock")
+            putExtra("title", "锁屏响铃测试")
+            putExtra("body", "看到这个页面就说明锁屏响铃没问题，点下面按钮关掉")
+            putExtra("kind", "test")
+        }
+        val pi = PendingIntent.getBroadcast(
+            ctx, 918_273, i,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        try {
+            if (Build.VERSION.SDK_INT >= 21) {
+                am.setAlarmClock(AlarmManager.AlarmClockInfo(at, null), pi)
+            } else {
+                am.set(AlarmManager.RTC_WAKEUP, at, pi)
+            }
+        } catch (_: SecurityException) {
+            try {
+                am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi)
+            } catch (_: Throwable) {
+            }
+        } catch (_: Throwable) {
+        }
+        AlarmLog.add(ctx, "排定锁屏响铃测试：${seconds}s 后")
+    }
     private const val PREF = "jiaoji_alarms"
     private const val EXTRA_PREFIX = "jiaoji://alarm/"
     private const val SHOW_OFFSET = 900_000
@@ -419,7 +456,12 @@ class RingService : Service() {
         if ((kind == "due" || testing) && (s.settings.vibrate || testing)) startVibrate()
 
         // 提前提醒响两声就停（20 秒），到点铃声一直响到用户确认
-        val stopAfter = if (autoStop > 0) autoStop.toLong() else if (kind == "pre") 20_000L else 0L
+        val stopAfter = when {
+            autoStop > 0 -> autoStop.toLong()
+            kind == "pre" -> 20_000L
+            key.startsWith("test") -> 15_000L
+            else -> 0L
+        }
         if (stopAfter > 0) {
             handler.postDelayed({ stopSelf() }, stopAfter)
         }
