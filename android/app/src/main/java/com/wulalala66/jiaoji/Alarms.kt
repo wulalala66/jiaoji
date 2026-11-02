@@ -397,9 +397,6 @@ class AlarmReceiver : BroadcastReceiver() {
 
         // 2) 全屏响铃界面（锁屏也能亮屏）——到点 / 测试 / 权限申请才拉起，提前提醒只弹通知
         if (kind == "due" || kind == "test" || kind == "perm") {
-            // 先挂个 1×1 透明悬浮窗，让本进程「有可见窗口」，这样后台 startActivity
-            // 不会被 ColorOS 静默掐掉（Android 14 起这是合法的后台启动豁免）
-            RingOverlay.peek(context)
             RingNotif.launchRingActivity(context, key, title, body, kind)
         }
 
@@ -429,21 +426,6 @@ class RingService : Service() {
             }
 
         /** 响铃页没起来就再拉一次；起来了就只记一笔 */
-        fun ensureRingUi(ctx: Context, key: String, title: String, body: String, kind: String, attempt: Int) {
-            if (RingActivity.alive) {
-                if (attempt == 0) AlarmLog.add(ctx, "响铃页已在前台")
-                return
-            }
-            AlarmLog.add(
-                ctx,
-                if (attempt == 0) "响铃页没弹出来，改用悬浮窗兜底"
-                else "✗ 响铃页和悬浮窗都没弹出来：检查悬浮窗权限",
-            )
-            RingNotif.launchRingActivity(ctx, key, title, body, kind)
-            // Activity 被 ROM 掐掉时的兜底：直接把响铃界面画在悬浮窗上。
-            // 悬浮窗不经过「后台启动 Activity」的限制，黑屏也能显示。
-            RingOverlay.show(ctx, key, title, body, kind)
-        }
     }
 
     private var player: MediaPlayer? = null
@@ -476,14 +458,8 @@ class RingService : Service() {
         }
 
         acquireWake()
-        // 到点这一下：先自己把屏幕点着，再拉一次响铃页；如果 1.5 秒 / 4 秒后它还没到前台
-        // （ColorOS 没给「后台弹出界面」时就会这样），再重试并记日志。
-        if (kind == "due" || kind == "test") {
-            acquireScreenWake()
-            RingNotif.launchRingActivity(this, key, title, body, kind)
-            handler.postDelayed({ ensureRingUi(this, key, title, body, kind, 0) }, 1_500L)
-            handler.postDelayed({ ensureRingUi(this, key, title, body, kind, 1) }, 4_000L)
-        }
+        // 界面由 AlarmReceiver 里的 PendingIntent 拉起（2.2.1 起就是这么做的，实测最稳）。
+        // 这里只负责声音和振动：服务多拉一次 Activity 反而会把已经在起的响铃页顶掉。
         val s = Repo.read(this)
         val testing = kind == "test"
         if (s.settings.sound || testing) {

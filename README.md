@@ -30,8 +30,8 @@
 到点响铃按系统闹钟的做法实现，**不依赖 App 在前台**：锁屏、清后台、重启手机（自动重挂）都会响。
 
 1. **排定**：用 `AlarmManager.setAlarmClock`（系统里优先级最高的闹钟类型，Doze 省电模式下也准时），并声明 `USE_EXACT_ALARM`，装好即拥有精确闹钟能力。
-2. **触发**：`AlarmReceiver` 同时做四件事——启动前台服务播铃（`MediaPlayer` + `USAGE_ALARM`，先把闹钟音量抬到 70%，持有唤醒锁与亮屏锁）、挂一个 1×1 透明悬浮窗让本进程「有可见窗口」（Android 14 起这是后台启动 Activity 的合法豁免）、拉起**全屏响铃界面**（`PendingIntent` + `MODE_BACKGROUND_ACTIVITY_START_ALLOWED`，锁屏也能亮屏）、发一条高优先级通知兜底。
-3. **兜底**：1.5 秒内响铃页没到前台（国产 ROM 掐了后台启动），`RingOverlay` 直接把整个响铃界面画成**悬浮窗**（`TYPE_APPLICATION_OVERLAY` + `FLAG_SHOW_WHEN_LOCKED`）——不经过 Activity 启动限制，只要有悬浮窗权限，黑屏也能看到「已取出 / 延后 2 分钟」。
+2. **触发**：`AlarmReceiver` 同时做三件事——启动前台服务播铃（`MediaPlayer` + `USAGE_ALARM`，先把闹钟音量抬到 70%，持有唤醒锁）、拉起**全屏响铃界面**（`PendingIntent` + `MODE_BACKGROUND_ACTIVITY_START_ALLOWED`，`showWhenLocked` + `turnScreenOn` 直接盖在锁屏上）、发一条高优先级通知兜底。
+3. **锁屏兜底**：有些 ROM 不给「锁屏显示」时会无视 `showWhenLocked`（页面起来了却被锁屏盖住）——1.2 秒拿不到窗口焦点就 `requestDismissKeyguard` 把页面顶出来。另外 `RingOverlay` 能把响铃界面画成**悬浮窗**（自检页有按钮可单独试），用来验证悬浮窗这条路是否可用。
 4. **铃声明亮双音**：优先用系统闹铃，取不到就用内置的 `res/raw/ring.ogg`，保证一定有声音。
 5. **全屏响铃界面**只有三个按钮：已取出 / 延后 2 分钟 / 只关掉声音，10 分钟没人处理自动停。
 

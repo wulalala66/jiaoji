@@ -94,8 +94,9 @@ class RingActivity : ComponentActivity() {
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        // 优先靠 showWhenLocked + turnScreenOn 直接盖在锁屏上面（不给解锁弹窗）；
-        // 如果 ROM 无视它，1.2 秒后会用 requestDismissKeyguard 兜底（见下面的 postDelayed）。
+        // showWhenLocked + turnScreenOn 负责「直接盖在锁屏上」（需要系统给了「锁屏显示」）；
+        // 没给的时候 ROM 会无视它，页面其实起来了但被锁屏盖住——1.2 秒后拿不到窗口焦点
+        // 就请求解锁把它顶出来（v2.3.0 实测能出页面，代价是有密码时会先要解锁）。
         try {
             @Suppress("DEPRECATION")
             window.addFlags(WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
@@ -139,10 +140,7 @@ class RingActivity : ComponentActivity() {
             }
         }
 
-        // 兜底：有些国产 ROM 没给「锁屏显示」权限时会直接无视 showWhenLocked ——
-        // 页面其实已经起来了，但被锁屏盖住，用户只听到声音看不到界面。
-        // 1.2 秒还没拿到窗口焦点，就请求解锁把响铃页顶出来（有密码的话系统会先要解锁，
-        // 这是系统行为，去设置里把「锁屏显示」打开就不会再出现）。
+        // 兜底：锁屏把响铃页盖住了（没给「锁屏显示」时就是这样）→ 请求解锁把它顶出来
         handler.postDelayed({
             if (!isFinishing && !isDestroyed && !hasWindowFocus()) {
                 try {

@@ -152,9 +152,11 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
                 ThinDivider()
                 CheckRow("后台不受限制", battOk, "去设置") { openBattery(ctx) }
                 ThinDivider()
-                CheckRow("后台弹出界面", false, "去开启") { OemHelper.openBackgroundPopup(ctx) }
+                // ColorOS/MIUI 都不提供「后台弹出界面」「自启动」的查询接口（AppOps 10021 会报 Bad operation），
+                // 所以这里不能报「未开启」骗人，只给入口。
+                UnknownRow("后台弹出界面", "系统不提供检测，以系统设置里为准") { OemHelper.openBackgroundPopup(ctx) }
                 ThinDivider()
-                CheckRow("自启动", false, "去开启") { OemHelper.openAutoStart(ctx) }
+                UnknownRow("自启动", "系统不提供检测，以系统设置里为准") { OemHelper.openAutoStart(ctx) }
                 ThinDivider()
                 KeyValue(
                     "上次响铃页",
@@ -214,6 +216,14 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
                         } catch (_: Throwable) {
                         }
                         tick++
+                    }
+                    DiagButton("悬浮窗响铃页", false) {
+                        RingOverlay.show(
+                            ctx, "test:overlay",
+                            "悬浮窗响铃页",
+                            "这就是黑屏、响铃页起不来时兜底显示的界面",
+                            "test",
+                        )
                     }
                     DiagButton("全屏响铃页", false) {
                         RingNotif.launchRingActivity(ctx, "test:", "测试全屏提醒", "这就是到点时的样子", "pre")
@@ -293,6 +303,18 @@ private fun CheckRow(label: String, ok: Boolean, action: String, onFix: () -> Un
         if (!ok) {
             DiagButton(action, true) { onFix() }
         }
+    }
+}
+
+@Composable
+private fun UnknownRow(label: String, sub: String, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge, color = Ink)
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = Ink3)
+        }
+        Spacer(Modifier.width(8.dp))
+        DiagButton("去开启", true) { onClick() }
     }
 }
 
