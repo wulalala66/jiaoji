@@ -22,6 +22,15 @@ class App : Application() {
         Repo.I.init(this)
         RingNotif.ensureChannel(this)
         KeepAliveService.ensureChannel(this)
+        // 任何崩溃都先写进日志（自检页 → 复制日志），不然界面上什么都没留下
+        val prev = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { t, e ->
+            try {
+                AlarmLog.add(this, "✗ 崩溃 ${e.javaClass.simpleName}: ${e.message}")
+            } catch (_: Throwable) {
+            }
+            prev?.uncaughtException(t, e)
+        }
         KeepAlive.sync(this, Repo.I.state.value)
         scope.launch { watchDueTimes() }
     }

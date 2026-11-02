@@ -149,8 +149,6 @@ class RingActivity : ComponentActivity() {
         super.onResume()
         alive = true
         // Activity 真的到前台了，就不需要悬浮窗兜底了
-        RingOverlay.hide()
-        RingOverlay.unpeek()
         AlarmLog.add(this, "响铃页到前台")
     }
 

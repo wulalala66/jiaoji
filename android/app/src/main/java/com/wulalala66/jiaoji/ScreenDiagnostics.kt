@@ -216,14 +216,6 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
                         }
                         tick++
                     }
-                    DiagButton("悬浮窗响铃页", false) {
-                        RingOverlay.show(
-                            ctx, "test:overlay",
-                            "悬浮窗响铃页",
-                            "这就是黑屏、响铃页起不来时兜底显示的界面",
-                            "test",
-                        )
-                    }
                     DiagButton("全屏响铃页", false) {
                         RingNotif.launchRingActivity(ctx, "test:", "测试全屏提醒", "这就是到点时的样子", "test")
                         tick++

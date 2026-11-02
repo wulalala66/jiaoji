@@ -648,7 +648,6 @@ class RingService : Service() {
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
         ringingKey = null
-        RingOverlay.hide()
         releasePlayer()
         try {
             vibrator?.cancel()
@@ -684,7 +683,6 @@ object RingActions {
     }
 
     fun stopRinging(ctx: Context) {
-        RingOverlay.hide()
         try {
             ctx.stopService(Intent(ctx, RingService::class.java))
         } catch (_: Throwable) {

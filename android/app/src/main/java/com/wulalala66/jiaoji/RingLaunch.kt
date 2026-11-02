@@ -11,7 +11,6 @@ import android.os.Looper
  *  2. 直接 startActivity：系统文档写明「已授予 SYSTEM_ALERT_WINDOW 的应用可以后台启动 Activity」，
  *     而黑屏能出全屏页恰恰就依赖这个悬浮窗权限
  *  3. 都没起来就隔一会儿再试，一共试三轮
- *  4. 三轮都不行，把同样的界面画成悬浮窗（悬浮窗不经过 Activity 启动限制）
  *
  * 每一步都写进日志（自检页 → 日志），出问题能直接看出是卡在哪一步。
  */
@@ -56,8 +55,7 @@ object RingLaunch {
         } else {
             handler.postDelayed({
                 if (!RingActivity.alive) {
-                    AlarmLog.add(ctx, "响铃页三轮都没起来，改用悬浮窗")
-                    RingOverlay.show(ctx, key, title, body, kind)
+                    AlarmLog.add(ctx, "✗ 响铃页三轮都没起来（被系统拦了后台启动）")
                 }
             }, 2_000L)
         }
