@@ -1,0 +1,19 @@
+R_DEF: Internal format may change without notice
+local
+color app_bg
+color brand
+color ic_bg
+color white
+drawable ic_stat
+drawable ic_stat_timer
+mipmap ic_launcher
+mipmap ic_launcher_fg
+raw chime
+raw keep
+raw ring
+string app_name
+style Theme.JiaoJi
+style Theme.JiaoJi.Ring
+xml backup_rules
+xml data_extraction_rules
+xml file_paths
