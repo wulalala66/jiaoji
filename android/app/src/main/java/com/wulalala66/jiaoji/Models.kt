@@ -32,6 +32,8 @@ data class TestDef(
     var unit: String = "",
     var min: String = "",
     var max: String = "",
+    /** plain = 直接填数值；density = 填 M1~M6 六个称量值，自动算比重 */
+    var kind: String = "plain",
 )
 
 data class ProductType(
@@ -39,6 +41,97 @@ data class ProductType(
     var name: String = "",
     var bakes: MutableList<BakePreset> = mutableListOf(),
     var tests: MutableList<TestDef> = mutableListOf(),
+)
+
+/**
+ * 比重用的六个称量值（对应车间那张 Excel 的 M1~M6）：
+ *   M1 / M2  烘前（杯 + 样）
+ *   M3 / M4  烘后
+ *   M5 / M6  固份（可留空，留空按 0 算，这时只算比重不算固含）
+ */
+data class Density(
+    var m1: Double = 0.0,
+    var m2: Double = 0.0,
+    var m3: Double = 0.0,
+    var m4: Double = 0.0,
+    var m5: Double = 0.0,
+    var m6: Double = 0.0,
+) {
+    fun toList(): List<Double> = listOf(m1, m2, m3, m4, m5, m6)
+    fun copy6(): Density = Density(m1, m2, m3, m4, m5, m6)
+    val hasSolid: Boolean get() = m5 > 0.0 || m6 > 0.0
+}
+
+data class DensityResult(
+    val d1: Double = 0.0,
+    val d2: Double = 0.0,
+    val d3: Double = 0.0,
+    val d4: Double = 0.0,
+    val specific: Double? = null, // 比重 = d1 / (d1 - d2)
+    val solid: Double? = null,    // 固体成分 % = d3 / d1 * 100
+    val foam: Double? = null,     // 发泡率 % = ((d3 - d4) / (d1 - d2) - 1) * 100
+)
+
+/** 公式照抄车间的 Excel，别自己改：d1=m3-m1, d2=m4-m2, d3=m5-m1, d4=m6-m2 */
+object DensityCalc {
+    fun calc(m1: Double, m2: Double, m3: Double, m4: Double, m5: Double, m6: Double): DensityResult {
+        val d1 = m3 - m1
+        val d2 = m4 - m2
+        val d3 = m5 - m1
+        val d4 = m6 - m2
+        val denom = d1 - d2
+        val okDen = kotlin.math.abs(denom) > 1e-6
+        val specific = if (d1 > 0.0 && okDen) d1 / denom else null
+        val solid = if (m5 > 0.0 && m6 > 0.0 && d1 > 0.0) d3 / d1 * 100.0 else null
+        val foam = if (m5 > 0.0 && m6 > 0.0 && okDen) ((d3 - d4) / denom - 1.0) * 100.0 else null
+        return DensityResult(d1, d2, d3, d4, specific, solid, foam)
+    }
+
+    fun calc(d: Density?): DensityResult =
+        if (d == null) calc(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        else calc(d.m1, d.m2, d.m3, d.m4, d.m5, d.m6)
+
+    fun text(v: Double?, digits: Int = 4): String {
+        if (v == null || v.isNaN() || v.isInfinite()) return "—"
+        return String.format(Locale.US, "%." + digits + "f", v)
+    }
+
+    /** 比重写进测试项用的文本（四位小数） */
+    fun specificText(d: Density?): String {
+        val r = calc(d)
+        return if (r.specific == null) "" else text(r.specific, 4)
+    }
+}
+
+/**
+ * 配料（配方）：一锅固定总量，比如 600g = 100%，每种原料占多少 %。
+ * 百分比是唯一真相（改总量时克数自动跟着变，配方本身不变）。
+ */
+data class FormulaItem(
+    var id: String = "",
+    var name: String = "",
+    var percent: Double = 0.0,
+)
+
+data class Formula(
+    var id: String = "",
+    var name: String = "",
+    var totalG: Double = 600.0,
+    var items: MutableList<FormulaItem> = mutableListOf(),
+    var note: String = "",
+) {
+    fun sumPercent(): Double = items.sumOf { it.percent }
+    fun gramsOf(it: FormulaItem): Double = it.percent * totalG / 100.0
+    fun sumGrams(): Double = items.sumOf { gramsOf(it) }
+    fun restPercent(): Double = 100.0 - sumPercent()
+    fun restGrams(): Double = totalG - sumGrams()
+}
+
+/** 产品/客户的烘烤条件表（车间那张「产品 - 烘烤条件」） */
+data class Product(
+    var id: String = "",
+    var name: String = "",
+    var bakes: MutableList<BakePreset> = mutableListOf(),
 )
 
 data class SamplingTask(
@@ -62,6 +155,10 @@ data class SampleTest(
     var value: String = "",
     var note: String = "",
     var skipped: Boolean = false,
+    /** plain = 直接填数值；density = 填 M1~M6，value 由比重公式算出来 */
+    var kind: String = "plain",
+    /** 比重用的六个称量值（只有 kind = density 才有） */
+    var dens: Density? = null,
 )
 
 data class Sample(
@@ -96,6 +193,8 @@ class AppState(
     var types: MutableList<ProductType> = mutableListOf(),
     var customers: MutableList<String> = mutableListOf(),
     var ovens: MutableList<Oven> = mutableListOf(),
+    var products: MutableList<Product> = mutableListOf(),
+    var formulas: MutableList<Formula> = mutableListOf(),
     var sampling: MutableList<SamplingTask> = mutableListOf(),
     var samples: MutableList<Sample> = mutableListOf(),
     var bakes: MutableList<Bake> = mutableListOf(),
@@ -112,6 +211,25 @@ object Defaults {
         Oven(id = "window", name = "靠窗烘箱", colorIdx = 1),
     )
 
+    fun products(): MutableList<Product> = mutableListOf(
+        Product("p01", "中亮/中亮VF3", mutableListOf(BakePreset(150, 25))),
+        Product("p02", "焊缝胶", mutableListOf(BakePreset(140, 30))),
+        Product("p03", "折边胶/结构胶", mutableListOf(BakePreset(180, 20))),
+        Product("p04", "奥博/圣歌瑞", mutableListOf(BakePreset(150, 25))),
+        Product("p05", "润东铭", mutableListOf(BakePreset(160, 20))),
+        Product("p06", "润金泽/六安", mutableListOf(BakePreset(150, 30), BakePreset(170, 20))),
+        Product("p07", "柳州万安", mutableListOf(BakePreset(160, 20))),
+        Product("p08", "安徽万安", mutableListOf(BakePreset(170, 20), BakePreset(210, 20))),
+        Product("p09", "江阴铝板底涂", mutableListOf(BakePreset(155, 30))),
+        Product("p10", "五菱灰色底涂", mutableListOf(BakePreset(140, 30))),
+        Product("p11", "方达发泡底涂", mutableListOf(BakePreset(160, 20))),
+        Product("p12", "珂亦铝板不发泡", mutableListOf(BakePreset(160, 25), BakePreset(170, 25))),
+        Product("p13", "太仓发泡底涂", mutableListOf(BakePreset(160, 20))),
+        Product("p14", "安徽众源", mutableListOf(BakePreset(160, 25))),
+        Product("p15", "宁波惠轩", mutableListOf(BakePreset(170, 20))),
+        Product("p16", "太仓格盛恩", mutableListOf(BakePreset(170, 20))),
+    )
+
     fun state(): AppState {
         val base = ProductType(
             id = "base", name = "底涂胶",
@@ -122,6 +240,7 @@ object Defaults {
                 t("bingham", "宾汉粘度", "Pa·s"),
                 t("shear", "剪切强度", "MPa"),
                 t("hardness", "硬度", "Shore A"),
+                TestDef(id = "density", name = "比重", kind = "density"),
             ),
         )
         val weld = ProductType(
@@ -133,6 +252,7 @@ object Defaults {
                 t("shear", "剪切强度", "MPa"),
                 t("hardness", "硬度", "Shore A"),
                 t("solid", "固含量", "%"),
+                TestDef(id = "density", name = "比重", kind = "density"),
             ),
         )
         val other = ProductType(id = "other", name = "其他", bakes = mutableListOf(), tests = mutableListOf())
@@ -140,6 +260,7 @@ object Defaults {
             types = mutableListOf(base, weld, other),
             customers = mutableListOf("安徽万安"),
             ovens = ovens(),
+            products = products(),
         )
     }
 }
@@ -248,6 +369,7 @@ object Codec {
                             put(JSONObject().apply {
                                 put("id", d.id); put("name", d.name); put("unit", d.unit)
                                 put("min", d.min); put("max", d.max)
+                                if (d.kind != "plain") put("kind", d.kind)
                             })
                         }
                     })
@@ -259,6 +381,30 @@ object Codec {
             s.ovens.forEach { ov ->
                 put(JSONObject().apply {
                     put("id", ov.id); put("name", ov.name); put("colorIdx", ov.colorIdx)
+                })
+            }
+        })
+        o.put("products", JSONArray().apply {
+            s.products.forEach { pd ->
+                put(JSONObject().apply {
+                    put("id", pd.id); put("name", pd.name)
+                    put("bakes", JSONArray().apply {
+                        pd.bakes.forEach { b -> put(JSONObject().put("temp", b.tempC).put("minutes", b.minutes)) }
+                    })
+                })
+            }
+        })
+        o.put("formulas", JSONArray().apply {
+            s.formulas.forEach { f ->
+                put(JSONObject().apply {
+                    put("id", f.id); put("name", f.name); put("totalG", f.totalG); put("note", f.note)
+                    put("items", JSONArray().apply {
+                        f.items.forEach { it2 ->
+                            put(JSONObject().apply {
+                                put("id", it2.id); put("name", it2.name); put("percent", it2.percent)
+                            })
+                        }
+                    })
                 })
             }
         })
@@ -287,6 +433,12 @@ object Codec {
                                 put("id", d.id); put("name", d.name); put("unit", d.unit)
                                 put("min", d.min); put("max", d.max)
                                 put("value", d.value); put("note", d.note); put("skipped", d.skipped)
+                                if (d.kind != "plain") put("kind", d.kind)
+                                d.dens?.let { dn ->
+                                    put("dens", JSONArray().apply {
+                                        dn.toList().forEach { v -> put(v) }
+                                    })
+                                }
                             })
                         }
                     })
@@ -346,6 +498,7 @@ object Codec {
                             unit = d.optString("unit", ""),
                             min = d.optString("min", ""),
                             max = d.optString("max", ""),
+                            kind = d.optString("kind", "plain").ifBlank { "plain" },
                         )
                     )
                 }
@@ -353,6 +506,48 @@ object Codec {
             s.types.add(pt)
         }
         if (s.types.isEmpty()) s.types = Defaults.state().types
+
+        o.optJSONArray("products")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val j = arr.optJSONObject(i) ?: continue
+                val name = j.optString("name", "").trim()
+                if (name.isEmpty()) continue
+                val pd = Product(id = j.optString("id", "p_$i"), name = name)
+                j.optJSONArray("bakes")?.let { bs ->
+                    for (k in 0 until bs.length()) {
+                        val b = bs.optJSONObject(k) ?: continue
+                        pd.bakes.add(BakePreset(b.optInt("temp", b.optInt("tempC", 140)), b.optInt("minutes", 30)))
+                    }
+                }
+                s.products.add(pd)
+            }
+        }
+        if (s.products.isEmpty()) s.products = Defaults.products()
+
+        o.optJSONArray("formulas")?.let { arr ->
+            for (i in 0 until arr.length()) {
+                val j = arr.optJSONObject(i) ?: continue
+                val f = Formula(
+                    id = j.optString("id", "f_$i"),
+                    name = j.optString("name", "未命名配方"),
+                    totalG = j.optDouble("totalG", 600.0),
+                    note = j.optString("note", ""),
+                )
+                j.optJSONArray("items")?.let { its ->
+                    for (k in 0 until its.length()) {
+                        val it2 = its.optJSONObject(k) ?: continue
+                        f.items.add(
+                            FormulaItem(
+                                id = it2.optString("id", "fi_$k"),
+                                name = it2.optString("name", ""),
+                                percent = it2.optDouble("percent", 0.0),
+                            )
+                        )
+                    }
+                }
+                s.formulas.add(f)
+            }
+        }
 
         o.optJSONArray("customers")?.let { cs ->
             for (i in 0 until cs.length()) {
@@ -423,6 +618,17 @@ object Codec {
                                 value = d.optString("value", ""),
                                 note = d.optString("note", ""),
                                 skipped = d.optBoolean("skipped", false),
+                                kind = d.optString("kind", "plain").ifBlank { "plain" },
+                                dens = d.optJSONArray("dens")?.let { a ->
+                                    Density(
+                                        m1 = a.optDouble(0, 0.0),
+                                        m2 = a.optDouble(1, 0.0),
+                                        m3 = a.optDouble(2, 0.0),
+                                        m4 = a.optDouble(3, 0.0),
+                                        m5 = a.optDouble(4, 0.0),
+                                        m6 = a.optDouble(5, 0.0),
+                                    )
+                                },
                             )
                         )
                     }
@@ -472,6 +678,13 @@ fun dayOffsetOf(ts: Long, now: Long = System.currentTimeMillis()): Int =
 
 fun hourOf(ts: Long): Int = Calendar.getInstance().apply { timeInMillis = ts }.get(Calendar.HOUR_OF_DAY)
 fun minuteOf(ts: Long): Int = Calendar.getInstance().apply { timeInMillis = ts }.get(Calendar.MINUTE)
+
+fun AppState.formulaOf(id: String?): Formula? = if (id == null) null else formulas.firstOrNull { it.id == id }
+
+fun AppState.productOf(id: String?): Product? = if (id == null) null else products.firstOrNull { it.id == id }
+
+fun AppState.productByName(name: String?): Product? =
+    if (name.isNullOrBlank()) null else products.firstOrNull { it.name == name }
 
 fun AppState.typeOf(id: String?): ProductType? = types.firstOrNull { it.id == id }
 fun AppState.typeName(id: String?): String = typeOf(id)?.name ?: "其他"

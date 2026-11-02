@@ -103,4 +103,25 @@ class ScreensSmokeTest {
         rule.setContent { JiaoJiTheme { Root() } }
         rule.waitForIdle()
     }
+
+    @Test
+    fun densityScreen() = smoke { _, _ -> DensityScreen({}) }
+
+    @Test
+    fun productsScreen() = smoke { s, _ -> ProductsScreen(s, {}) }
+
+    @Test
+    fun formulasScreen() {
+        val id = Repo.I.addFormula("底涂 A 料", 600.0)
+        Repo.I.addFormulaItem(id, "树脂", 60.0)
+        Repo.I.addFormulaItem(id, "填料", 30.0)
+        smoke { s, _ -> FormulasScreen(s, {}, {}) }
+    }
+
+    @Test
+    fun formulaEditor() {
+        val id = Repo.I.addFormula("底涂 A 料", 600.0)
+        Repo.I.addFormulaItem(id, "树脂", 60.0)
+        smoke { s, _ -> FormulaEditorScreen(s, id, {}) }
+    }
 }

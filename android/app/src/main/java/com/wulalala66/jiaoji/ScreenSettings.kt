@@ -53,7 +53,14 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 
 @Composable
-fun SettingsScreen(state: AppState, onOpenType: (String?) -> Unit, onOpenDiagnostics: () -> Unit = {}) {
+fun SettingsScreen(
+    state: AppState,
+    onOpenType: (String?) -> Unit,
+    onOpenDiagnostics: () -> Unit = {},
+    onOpenDensity: () -> Unit = {},
+    onOpenProducts: () -> Unit = {},
+    onOpenFormulas: () -> Unit = {},
+) {
     val ctx = LocalContext.current
     val s = state.settings
     var showAddCustomer by remember { mutableStateOf(false) }
@@ -247,6 +254,18 @@ fun SettingsScreen(state: AppState, onOpenType: (String?) -> Unit, onOpenDiagnos
                         }
                     }
                 }
+            }
+        }
+
+        item { SectionHeader("工具") }
+
+        item {
+            AppCard {
+                ToolRow("⚖️", "比重计算器", "输 M1~M6，出比重 / 固体成分 / 发泡率", onOpenDensity)
+                ThinDivider()
+                ToolRow("📋", "产品条件表", "${state.products.size} 条 · 哪个客户烤多少度多久", onOpenProducts)
+                ThinDivider()
+                ToolRow("⚗️", "配料", "${state.formulas.size} 个配方 · 克数和百分比自动换算", onOpenFormulas)
             }
         }
 
@@ -554,4 +573,26 @@ private fun ImportDialog(onDismiss: () -> Unit, onOk: (String) -> Unit) {
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
+}
+
+@Composable
+private fun ToolRow(emoji: String, title: String, sub: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = ripple(),
+            ) { onClick() }
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(emoji, fontSize = 18.sp)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = Ink)
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = Ink3)
+        }
+        Text("›", color = Ink3, fontSize = 18.sp)
+    }
 }

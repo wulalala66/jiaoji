@@ -321,6 +321,7 @@ fun BakeFormScreen(
                 ?: listOfNotNull(sample?.customer, type?.name).joinToString(" ").ifBlank { "烘烤样品" }
         )
     }
+    var pickProduct by remember { mutableStateOf(false) }
 
     val tempInt = temp.toIntOrNull() ?: 0
     val minInt = minutes.toIntOrNull() ?: 0
@@ -460,6 +461,30 @@ fun BakeFormScreen(
 
         Spacer(Modifier.height(10.dp))
         AppCard {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("产品条件表", style = MaterialTheme.typography.labelMedium, color = Ink3)
+                Spacer(Modifier.weight(1f))
+                Text("${state.products.size} 条", style = MaterialTheme.typography.bodySmall, color = Ink3)
+            }
+            Spacer(Modifier.height(6.dp))
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(MaterialTheme.shapes.small)
+                    .background(BrandSoft)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = ripple(),
+                    ) { pickProduct = true }
+                    .padding(vertical = 11.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("按客户选一下，自动填温度时长", color = Brand, style = MaterialTheme.typography.titleSmall)
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+        AppCard {
             OutlinedTextField(
                 value = label,
                 onValueChange = { label = it },
@@ -495,6 +520,50 @@ fun BakeFormScreen(
             }) { Text("删除这个计时", color = Danger) }
         }
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (pickProduct) {
+        AlertDialog(
+            onDismissRequest = { pickProduct = false },
+            title = { Text("产品条件表") },
+            text = {
+                Column(
+                    Modifier
+                        .height(320.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    state.products.forEach { p ->
+                        Column(Modifier.fillMaxWidth().padding(vertical = 5.dp)) {
+                            Text(p.name, style = MaterialTheme.typography.titleSmall, color = Ink)
+                            Spacer(Modifier.height(4.dp))
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                p.bakes.forEach { b ->
+                                    ChoiceChip("${b.tempC}℃ ${b.minutes}分", false) {
+                                        temp = "${b.tempC}"
+                                        minutes = "${b.minutes}"
+                                        label = p.name
+                                        pickProduct = false
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (state.products.isEmpty()) {
+                        Text(
+                            "还没有产品，去 设置 → 产品条件表 里加。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Ink3,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { pickProduct = false }) { Text("关闭", color = Ink2) }
+            },
+        )
     }
 }
 

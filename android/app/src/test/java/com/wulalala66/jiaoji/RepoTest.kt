@@ -333,4 +333,102 @@ class RepoTest {
         val pending = AlarmScheduler.pendingMap(RuntimeEnvironment.getApplication())
         assertTrue("自定义烘箱的计时也要排上闹钟", pending.containsKey("b:${b.id}"))
     }
+
+    /* ---------------- 比重 ---------------- */
+
+    @Test
+    fun densityTestKeepsSixValuesAndSpecificGravity() {
+        val sampleId = Repo.I.createStandaloneSample("安徽万安", "base")!!
+        val t = state().sampleOf(sampleId)!!.tests.first { it.kind == "density" }
+        assertEquals("density", t.kind)
+
+        Repo.I.setTestDensity(sampleId, t.id, Density(2.9, 1.82, 4.42, 2.26, 4.38, 2.26))
+        val after = state().sampleOf(sampleId)!!.tests.first { it.id == t.id }
+        assertEquals(4.42, after.dens!!.m3, 1e-9)
+        assertEquals("比重应写进数值字段，方便和标准比对", "1.4074", after.value)
+        assertEquals(Verdict.EMPTY, verdictOf(after))
+
+        // 落盘
+        val saved = persisted().sampleOf(sampleId)!!.tests.first { it.id == t.id }
+        assertEquals(4.38, saved.dens!!.m5, 1e-9)
+    }
+
+    /* ---------------- 产品条件表 ---------------- */
+
+    @Test
+    fun productCrud() {
+        assertEquals("16 条默认产品", 16, state().products.size)
+        val id = Repo.I.addProduct("测试客户", listOf(BakePreset("p1", 155, 30)))!!
+        assertNotNull(state().productOf(id))
+        assertEquals(155, state().productOf(id)!!.bakes.first().tempC)
+
+        Repo.I.updateProduct(id, "测试客户2", listOf(BakePreset("p2", 170, 20), BakePreset("p3", 210, 20)))
+        assertEquals("测试客户2", state().productOf(id)!!.name)
+        assertEquals(2, state().productOf(id)!!.bakes.size)
+
+        Repo.I.removeProduct(id)
+        assertNull(state().productOf(id))
+        assertEquals("默认产品不能被顺手删掉", 16, state().products.size)
+    }
+
+    /* ---------------- 配料 ---------------- */
+
+    @Test
+    fun formulaGramsAndPercentFollowTotal() {
+        val id = Repo.I.addFormula("底涂 A 料", 600.0)
+        val a = Repo.I.addFormulaItem(id, "树脂", 50.0)
+        val b = Repo.I.addFormulaItem(id, "填料", 25.0)
+        val f = state().formulaOf(id)!!
+        assertEquals(300.0, f.gramsOf(f.items.first { it.id == a }), 1e-9)
+        assertEquals(150.0, f.gramsOf(f.items.first { it.id == b }), 1e-9)
+        assertEquals(75.0, f.sumPercent(), 1e-9)
+        assertEquals(25.0, f.restPercent(), 1e-9)
+        assertEquals(150.0, f.restGrams(), 1e-9)
+
+        // 改总量：百分比不变，克数跟着变
+        Repo.I.setFormulaTotal(id, 1200.0)
+        val f2 = state().formulaOf(id)!!
+        assertEquals(50.0, f2.items.first { it.id == a }.percent, 1e-9)
+        assertEquals(600.0, f2.gramsOf(f2.items.first { it.id == a }), 1e-9)
+    }
+
+    @Test
+    fun fillRestFillsTheLastGap() {
+        val id = Repo.I.addFormula("测试配方", 600.0)
+        Repo.I.addFormulaItem(id, "A", 40.0)
+        val b = Repo.I.addFormulaItem(id, "B", 30.0)
+        Repo.I.fillFormulaRest(id, b)
+        val f = state().formulaOf(id)!!
+        assertEquals(100.0, f.sumPercent(), 1e-9)
+        assertEquals(60.0, f.items.first { it.id == b }.percent, 1e-9)
+        assertEquals(360.0, f.gramsOf(f.items.first { it.id == b }), 1e-9)
+    }
+
+    @Test
+    fun formulaItemEditAndRemove() {
+        val id = Repo.I.addFormula("测试配方2", 600.0)
+        val a = Repo.I.addFormulaItem(id, "A", 10.0)
+        Repo.I.updateFormulaItem(id, a, name = "改性树脂", percent = 12.5)
+        val f = state().formulaOf(id)!!
+        assertEquals("改性树脂", f.items.first().name)
+        assertEquals(12.5, f.items.first().percent, 1e-9)
+        Repo.I.removeFormulaItem(id, a)
+        assertTrue(state().formulaOf(id)!!.items.isEmpty())
+    }
+
+    @Test
+    fun formulaDuplicateAndDelete() {
+        val id = Repo.I.addFormula("原件", 500.0)
+        Repo.I.addFormulaItem(id, "A", 60.0)
+        val copy = Repo.I.duplicateFormula(id)
+        val c = state().formulaOf(copy)!!
+        assertEquals("原件 副本", c.name)
+        assertEquals(500.0, c.totalG, 1e-9)
+        assertEquals(1, c.items.size)
+        assertTrue("副本的原料要有自己的 id", c.items.first().id != state().formulaOf(id)!!.items.first().id)
+
+        Repo.I.removeFormula(copy)
+        assertNull(state().formulaOf(copy))
+        assertNotNull(state().formulaOf(id))
+    }
 }

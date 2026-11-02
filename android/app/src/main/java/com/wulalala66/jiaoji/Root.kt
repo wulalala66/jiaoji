@@ -66,6 +66,10 @@ sealed interface Screen {
     data class BakeForm(val bakeId: String? = null, val sampleId: String? = null, val oven: String = "door") : Screen
     data class TypeEditor(val typeId: String? = null) : Screen
     data object Diagnostics : Screen
+    data object Density : Screen
+    data object Products : Screen
+    data object Formulas : Screen
+    data class FormulaEditor(val formulaId: String) : Screen
 }
 
 fun Context.findActivity(): Activity? {
@@ -167,6 +171,25 @@ fun Root() {
                     state = state,
                     onOpenType = { screen = Screen.TypeEditor(it) },
                     onOpenDiagnostics = { screen = Screen.Diagnostics },
+                    onOpenDensity = { screen = Screen.Density },
+                    onOpenProducts = { screen = Screen.Products },
+                    onOpenFormulas = { screen = Screen.Formulas },
+                )
+
+                is Screen.Density -> DensityScreen(onBack = { screen = Screen.Settings })
+
+                is Screen.Products -> ProductsScreen(state = state, onBack = { screen = Screen.Settings })
+
+                is Screen.Formulas -> FormulasScreen(
+                    state = state,
+                    onOpen = { screen = Screen.FormulaEditor(it) },
+                    onBack = { screen = Screen.Settings },
+                )
+
+                is Screen.FormulaEditor -> FormulaEditorScreen(
+                    state = state,
+                    formulaId = s.formulaId,
+                    onBack = { screen = Screen.Formulas },
                 )
 
                 is Screen.Detail -> DetailScreen(

@@ -179,7 +179,11 @@ class Repo private constructor() {
         val now = System.currentTimeMillis()
         val type = s.typeOf(typeId)
         val tests = (type?.tests ?: emptyList()).map {
-            SampleTest(id = it.id, name = it.name, unit = it.unit, min = it.min, max = it.max)
+            SampleTest(
+                id = it.id, name = it.name, unit = it.unit, min = it.min, max = it.max,
+                kind = it.kind,
+                dens = if (it.kind == "density") Density() else null,
+            )
         }.toMutableList()
         return Sample(
             id = "sm_" + uid(),
@@ -207,6 +211,17 @@ class Repo private constructor() {
         }
     }
 
+    /** 比重：存下六个称量值，并把算出来的比重写进 value（记录/日报/CSV 都用 value） */
+    fun setTestDensity(sampleId: String, testId: String, dens: Density) {
+        mutate { s ->
+            s.sampleOf(sampleId)?.tests?.firstOrNull { it.id == testId }?.let {
+                it.dens = dens
+                it.value = DensityCalc.specificText(dens)
+                if (it.value.isNotBlank()) it.skipped = false
+            }
+        }
+    }
+
     fun setTestNote(sampleId: String, testId: String, note: String) {
         mutate { s ->
             s.sampleOf(sampleId)?.tests?.firstOrNull { it.id == testId }?.note = note
@@ -222,11 +237,22 @@ class Repo private constructor() {
         }
     }
 
-    fun addTest(sampleId: String, name: String, unit: String, min: String = "", max: String = "") {
+    fun addTest(
+        sampleId: String,
+        name: String,
+        unit: String,
+        min: String = "",
+        max: String = "",
+        kind: String = "plain",
+    ) {
         if (name.isBlank()) return
         mutate { s ->
             s.sampleOf(sampleId)?.tests?.add(
-                SampleTest(id = "t_" + uid(), name = name.trim(), unit = unit.trim(), min = min, max = max)
+                SampleTest(
+                    id = "t_" + uid(), name = name.trim(), unit = unit.trim(), min = min, max = max,
+                    kind = kind,
+                    dens = if (kind == "density") Density() else null,
+                )
             )
         }
     }
@@ -403,6 +429,114 @@ class Repo private constructor() {
             s.bakes.removeAll { it.oven == id }
         }
         return true
+    }
+
+    // ---------------- 产品条件表 ----------------
+
+    fun addProduct(name: String, bakes: List<BakePreset> = emptyList()): String? {
+        val n = name.trim()
+        if (n.isEmpty()) return null
+        var id: String? = null
+        mutate { s ->
+            if (s.products.any { it.name == n }) return@mutate
+            val pid = "p_" + uid()
+            s.products.add(Product(id = pid, name = n, bakes = bakes.toMutableList()))
+            id = pid
+        }
+        return id
+    }
+
+    fun updateProduct(id: String, name: String, bakes: List<BakePreset>) {
+        val n = name.trim()
+        if (n.isEmpty()) return
+        mutate { s ->
+            s.products.firstOrNull { it.id == id }?.apply {
+                this.name = n
+                this.bakes = bakes.toMutableList()
+            }
+        }
+    }
+
+    fun removeProduct(id: String) {
+        mutate { s -> s.products.removeAll { it.id == id } }
+    }
+
+    // ---------------- 配料 / 配方 ----------------
+
+    fun addFormula(name: String = "", totalG: Double = 600.0): String {
+        var id = ""
+        mutate { s ->
+            val f = Formula(
+                id = "f_" + uid(),
+                name = name.ifBlank { "配方 " + (s.formulas.size + 1) },
+                totalG = if (totalG > 0) totalG else 600.0,
+            )
+            s.formulas.add(f)
+            id = f.id
+        }
+        return id
+    }
+
+    fun updateFormula(id: String, block: (Formula) -> Unit) {
+        mutate { s -> s.formulas.firstOrNull { it.id == id }?.let(block) }
+    }
+
+    fun setFormulaTotal(id: String, totalG: Double) {
+        updateFormula(id) { it.totalG = if (totalG > 0) totalG else it.totalG }
+    }
+
+    fun addFormulaItem(id: String, name: String = "", percent: Double = 0.0): String {
+        var itemId = ""
+        updateFormula(id) { f ->
+            val it2 = FormulaItem(id = "fi_" + uid(), name = name, percent = percent)
+            f.items.add(it2)
+            itemId = it2.id
+        }
+        return itemId
+    }
+
+    fun updateFormulaItem(id: String, itemId: String, name: String? = null, percent: Double? = null) {
+        updateFormula(id) { f ->
+            f.items.firstOrNull { it.id == itemId }?.let { it2 ->
+                if (name != null) it2.name = name
+                if (percent != null) it2.percent = percent
+            }
+        }
+    }
+
+    fun removeFormulaItem(id: String, itemId: String) {
+        updateFormula(id) { f -> f.items.removeAll { it.id == itemId } }
+    }
+
+    /** 把剩下的量补给某一行（凑满 100%） */
+    fun fillFormulaRest(id: String, itemId: String) {
+        updateFormula(id) { f ->
+            val others = f.items.filter { it.id != itemId }.sumOf { it.percent }
+            f.items.firstOrNull { it.id == itemId }?.percent =
+                (100.0 - others).coerceAtLeast(0.0)
+        }
+    }
+
+    fun removeFormula(id: String) {
+        mutate { s -> s.formulas.removeAll { it.id == id } }
+    }
+
+    fun duplicateFormula(id: String): String {
+        var newId = ""
+        mutate { s ->
+            val src = s.formulas.firstOrNull { it.id == id } ?: return@mutate
+            val copy = Formula(
+                id = "f_" + uid(),
+                name = src.name + " 副本",
+                totalG = src.totalG,
+                note = src.note,
+                items = src.items.map { FormulaItem(id = "fi_" + uid(), name = it.name, percent = it.percent) }
+                    .toMutableList(),
+            )
+            s.formulas.add(copy)
+            newId = copy.id
+        }
+        return newId
     }
 
     fun addCustomer(name: String) {

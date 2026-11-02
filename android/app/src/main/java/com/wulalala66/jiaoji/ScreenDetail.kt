@@ -165,6 +165,7 @@ fun DetailScreen(
                 test = t,
                 prev = state.lastValueFor(sample, t.name),
                 onValue = { Repo.I.setTestValue(sample.id, t.id, it) },
+                onDensity = { Repo.I.setTestDensity(sample.id, t.id, it) },
                 onSkip = { Repo.I.toggleTestSkip(sample.id, t.id) },
                 onRemove = { Repo.I.removeTest(sample.id, t.id) },
                 onNext = { focus.moveFocus(FocusDirection.Down) },
@@ -218,8 +219,8 @@ fun DetailScreen(
             type = state.typeOf(sample.typeId),
             existing = sample.tests.map { it.name },
             onDismiss = { showAdd = false },
-            onAdd = { name, unit, min, max ->
-                Repo.I.addTest(sample.id, name, unit, min, max)
+            onAdd = { name, unit, min, max, kind ->
+                Repo.I.addTest(sample.id, name, unit, min, max, kind)
                 showAdd = false
             },
         )
@@ -278,6 +279,7 @@ private fun TestRow(
     test: SampleTest,
     prev: String? = null,
     onValue: (String) -> Unit,
+    onDensity: (Density) -> Unit,
     onSkip: () -> Unit,
     onRemove: () -> Unit,
     onNext: () -> Unit,
@@ -309,7 +311,10 @@ private fun TestRow(
             VerdictPill(test)
         }
         Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        if (test.kind == "density") {
+            DensityInputs(test, onDensity)
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = if (test.skipped) "" else text.value,
                 onValueChange = { text.value = it },
@@ -341,6 +346,79 @@ private fun TestRow(
             IconAction(Icons.Filled.Close, Ink3, "跳过") { onSkip() }
             IconAction(Icons.Filled.Delete, Ink3, "删除项") { onRemove() }
         }
+        }
+    }
+}
+
+/** 比重：M1~M6 六个称量值，自动算 比重 / 固体成分 / 发泡率 */
+@Composable
+private fun DensityInputs(test: SampleTest, onDensity: (Density) -> Unit) {
+    val dens = test.dens ?: Density()
+    var texts by remember(test.id) {
+        mutableStateOf(dens.toList().map { if (it == 0.0) "" else it.toString() })
+    }
+    val nums = texts.map { it.trim().replace("，", ".").toDoubleOrNull() ?: 0.0 }
+    val r = DensityCalc.calc(
+        nums[0], nums[1], nums[2], nums[3], nums[4], nums[5]
+    )
+
+    Column {
+        (0 until 2).forEach { rowIdx ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                (0 until 3).forEach { col ->
+                    val idx = rowIdx * 3 + col
+                    NumField(
+                        value = texts[idx],
+                        onValueChange = { v ->
+                            val list = texts.toMutableList()
+                            list[idx] = v
+                            texts = list
+                            val n = list.map { it.trim().replace("，", ".").toDoubleOrNull() ?: 0.0 }
+                            onDensity(Density(n[0], n[1], n[2], n[3], n[4], n[5]))
+                        },
+                        label = "M${idx + 1}",
+                        modifier = Modifier.weight(1f),
+                        imeNext = idx < 5,
+                    )
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.weight(1f)) {
+                Text("比重", style = MaterialTheme.typography.labelSmall, color = Ink3)
+                Text(
+                    DensityCalc.text(r.specific, 4),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Ink,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Text("固体成分", style = MaterialTheme.typography.labelSmall, color = Ink3)
+                Text(
+                    if (r.solid != null) DensityCalc.text(r.solid, 2) + " %" else "—",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Ink2,
+                )
+            }
+            Column(Modifier.weight(1f)) {
+                Text("发泡率", style = MaterialTheme.typography.labelSmall, color = Ink3)
+                Text(
+                    if (r.foam != null) DensityCalc.text(r.foam, 2) + " %" else "—",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = Ink2,
+                )
+            }
+        }
+        if (r.solid == null) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "只算比重填 M1~M4 就行；填上 M5、M6 才有固体成分和发泡率。",
+                style = MaterialTheme.typography.bodySmall,
+                color = Ink3,
+            )
+        }
     }
 }
 
@@ -349,7 +427,7 @@ private fun AddTestDialog(
     type: ProductType?,
     existing: List<String>,
     onDismiss: () -> Unit,
-    onAdd: (String, String, String, String) -> Unit,
+    onAdd: (String, String, String, String, String) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
     var unit by remember { mutableStateOf("") }
@@ -367,8 +445,14 @@ private fun AddTestDialog(
                     Spacer(Modifier.height(6.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         common.take(3).forEach { d ->
-                            ChoiceChip(d.name, false) { onAdd(d.name, d.unit, d.min, d.max) }
+                            ChoiceChip(d.name, false) { onAdd(d.name, d.unit, d.min, d.max, d.kind) }
                         }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                }
+                if ("比重" !in existing) {
+                    Row {
+                        ChoiceChip("比重（自动算）", false) { onAdd("比重", "", "", "", "density") }
                     }
                     Spacer(Modifier.height(10.dp))
                 }
@@ -413,7 +497,7 @@ private fun AddTestDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = { onAdd(name, unit, min, max) }, enabled = name.isNotBlank()) { Text("添加") }
+            TextButton(onClick = { onAdd(name, unit, min, max, "plain") }, enabled = name.isNotBlank()) { Text("添加") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )

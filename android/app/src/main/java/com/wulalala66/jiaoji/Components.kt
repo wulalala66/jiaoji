@@ -112,6 +112,38 @@ fun OvenPill(state: AppState, oven: String) {
 /**
  * 页面底部的主按钮（保存 / 开始计时 / 完成检测），高度、圆角、禁用态统一在这里。
  */
+/**
+ * 数字输入框：统一小键盘、Next 跳转、样式，各处复用。
+ * 用文本而不是 Double，避免「2.」这种中间状态被打断。
+ */
+@Composable
+fun NumField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    placeholder: String? = null,
+    imeNext: Boolean = true,
+    suffix: String? = null,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+        placeholder = placeholder?.let { { Text(it, style = MaterialTheme.typography.bodySmall, color = Ink3) } },
+        singleLine = true,
+        modifier = modifier,
+        textStyle = MaterialTheme.typography.bodyLarge,
+        colors = fieldColors(),
+        trailingIcon = suffix?.let { { Text(it, style = MaterialTheme.typography.labelSmall, color = Ink3) } },
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+            keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal,
+            imeAction = if (imeNext) androidx.compose.ui.text.input.ImeAction.Next
+            else androidx.compose.ui.text.input.ImeAction.Done,
+        ),
+    )
+}
+
 @Composable
 fun PrimaryButton(
     text: String,
