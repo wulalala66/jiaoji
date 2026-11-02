@@ -270,6 +270,8 @@ object AlarmScheduler {
 object RingNotif {
     const val CHANNEL = "jiaoji.alarm"
     const val ID = 7101
+    /** 全屏意图那条单独一个 id：前台服务通知在部分 ROM 上不会触发全屏 */
+    const val ID_FULL = 7103
     const val ACTION_DONE = "com.wulalala66.jiaoji.RING_DONE"
     const val ACTION_SNOOZE = "com.wulalala66.jiaoji.RING_SNOOZE"
 
@@ -287,6 +289,17 @@ object RingNotif {
             setShowBadge(true)
         }
         nm.createNotificationChannel(ch)
+    }
+
+    /** 单独发一条带全屏意图的通知：交给系统（SystemUI）去启动响铃页，比 App 自己拉更稳 */
+    fun postFullScreen(ctx: Context, key: String, title: String, body: String, kind: String) {
+        if (kind != "due" && kind != "test") return
+        try {
+            NotificationManagerCompat.from(ctx).notify(ID_FULL, build(ctx, key, title, body, kind))
+            AlarmLog.add(ctx, "已发全屏通知 $key")
+        } catch (e: Throwable) {
+            AlarmLog.add(ctx, "✗ 全屏通知失败 ${e.javaClass.simpleName}: ${e.message}")
+        }
     }
 
     fun build(ctx: Context, key: String, title: String, body: String, kind: String): Notification {
@@ -400,7 +413,10 @@ class AlarmReceiver : BroadcastReceiver() {
             RingLaunch.fire(context, key, title, body, kind)
         }
 
-        // 3) 通知兜底（用户可能把界面划掉，通知栏里还能操作）
+        // 3) 单独发一条带全屏意图的通知，让系统自己去启动响铃页
+        RingNotif.postFullScreen(context, key, title, body, kind)
+
+        // 4) 通知兜底（用户可能把界面划掉，通知栏里还能操作）
         try {
             NotificationManagerCompat.from(context)
                 .notify(RingNotif.ID, RingNotif.build(context, key, title, body, kind))
@@ -467,6 +483,8 @@ class RingService : Service() {
         ringingKey = key
 
         acquireWake()
+        // 真正点亮屏幕：只靠 Activity 的 turnScreenOn 不够，ROM 拦了后台启动就一直黑着
+        if (kind == "due" || kind == "test") acquireScreenWake()
         // 界面由 AlarmReceiver 里的 PendingIntent 拉起（2.2.1 起就是这么做的，实测最稳）。
         // 这里只负责声音和振动：服务多拉一次 Activity 反而会把已经在起的响铃页顶掉。
         val s = Repo.read(this)
@@ -689,6 +707,7 @@ object RingActions {
         }
         try {
             NotificationManagerCompat.from(ctx).cancel(RingNotif.ID)
+            NotificationManagerCompat.from(ctx).cancel(RingNotif.ID_FULL)
         } catch (_: Throwable) {
         }
     }

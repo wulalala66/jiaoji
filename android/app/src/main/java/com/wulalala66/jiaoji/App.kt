@@ -82,7 +82,8 @@ class App : Application() {
         } catch (e: Throwable) {
             AlarmLog.add(this, "✗ 服务启动失败 ${e.javaClass.simpleName}")
         }
-        // 进程在后台也要把界面弄到屏幕上：多路重试，最后兜底悬浮窗
+        // 交给系统去弹全屏页（最稳），同时自己再拉一次
+        RingNotif.postFullScreen(this, key, title, body, "due")
         RingLaunch.fire(this, key, title, body, "due")
         try {
             NotificationManagerCompat.from(this).notify(RingNotif.ID, RingNotif.build(this, key, title, body, "due"))
