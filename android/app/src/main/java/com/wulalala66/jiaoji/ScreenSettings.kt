@@ -195,82 +195,25 @@ fun SettingsScreen(
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                // 悬浮窗是黑屏响铃的主力兜底：Activity 被 ROM 掐掉时，直接把响铃界面画在悬浮窗上
-                PermRow(
-                    title = if (overlayOn) "悬浮窗已开启（黑屏响铃靠它）" else "悬浮窗未开启（黑屏响铃需要它）",
-                    sub = if (overlayOn) "响铃页弹不出来时，胶记会直接把响铃界面画在悬浮窗上"
-                    else "没开的话，黑屏时可能只有声音没有界面。点「去开启」→ 允许显示在其他应用上层",
-                    bad = !overlayOn,
-                    action = "去开启",
-                    always = true,
-                ) { openOverlay(ctx) }
-                Spacer(Modifier.height(10.dp))
-                var testQueued by remember { mutableStateOf(false) }
-                Column {
-                    Text("锁屏显示", style = MaterialTheme.typography.titleSmall, color = Ink)
-                    Text(
-                        if (testQueued) "2 秒后胶记会自己弹一下，系统问「允许在锁屏上显示」就点允许。"
-                        else "点「允许」：胶记会退到后台并自己弹一下，系统这时候会问你「允许在锁屏上显示」——点允许就行，不用自己去设置里找。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (testQueued) Brand else Ink3,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SmallButton("允许", true) {
-                            ctx.findActivity()?.moveTaskToBack(true)
-                            AlarmScheduler.scheduleTest(ctx, 2, quiet = true)
-                            testQueued = true
-                        }
-                        SmallButton("系统设置里找") { openLockScreenSettings(ctx) }
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-                PermRow(
-                    title = if (battOk) "后台运行不受限制" else "后台运行可能被限制",
-                    sub = "防止系统把闹钟和响铃掐掉",
-                    bad = !battOk,
-                    action = "去设置",
-                ) { openBattery(ctx) }
-                if (OemHelper.isColorOs || OemHelper.isMiui || OemHelper.isVivo || OemHelper.isEmui) {
-                    Spacer(Modifier.height(10.dp))
-                    Column {
+                // 黑屏到点能不能直接全屏响铃，实际就看这一项——系统里叫「悬浮窗 / 显示在其他应用上层」，
+                // 2.3.1 起就是这么判断的，实测给了它黑屏就能出响铃页。
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
                         Text(
-                            "后台弹出界面",
+                            if (overlayOn) "悬浮窗已开启" else "悬浮窗未开启",
                             style = MaterialTheme.typography.titleSmall,
                             color = if (overlayOn) Ink else Danger,
                         )
                         Text(
-                            if (overlayOn) "开了更稳（直接起全屏响铃页）。不开也能响：胶记会改用悬浮窗把界面画出来。点「允许」：胶记会退到后台自己弹一下，系统会问你「允许后台弹出界面」——点允许就行。"
-                            else "不开这个，黑屏时可能只有声音。点「允许」：胶记会退到后台自己弹一下，系统会问你「允许后台弹出界面」——点允许就行。",
+                            if (overlayOn) "黑屏到点会直接全屏响铃"
+                            else "不开启的话，黑屏到点会先让你解锁再响铃",
                             style = MaterialTheme.typography.bodySmall,
                             color = Ink3,
                         )
-                        Spacer(Modifier.height(8.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            SmallButton("允许", true) {
-                                ctx.findActivity()?.moveTaskToBack(true)
-                                AlarmScheduler.scheduleTest(ctx, 2, quiet = true)
-                            }
-                            SmallButton("系统设置里找") { OemHelper.openBackgroundPopup(ctx) }
-                        }
                     }
-                    Spacer(Modifier.height(10.dp))
-                    PermRow(
-                        title = "自启动 / 后台活动",
-                        sub = "防止系统把胶记从后台清掉",
-                        bad = false,
-                        action = "去开启",
-                    ) { OemHelper.openAutoStart(ctx) }
-                }
-                if (!fsiOk) {
-                    Spacer(Modifier.height(10.dp))
-                    PermRow(
-                        title = "全屏通知未允许",
-                        sub = "Android 14 起全屏响铃要单独授权",
-                        bad = true,
-                        action = "去允许",
-                        always = true,
-                    ) { OemHelper.openFullScreenIntentSettings(ctx) }
+                    if (!overlayOn) {
+                        SmallButton("去开启", true) { openOverlay(ctx) }
+                    }
                 }
             }
         }

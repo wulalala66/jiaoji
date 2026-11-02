@@ -142,21 +142,14 @@ fun DiagnosticsScreen(state: AppState, onBack: () -> Unit) {
 
             SectionHeader("权限与系统设置")
             AppCard {
+                // 只要这三项：通知、精确闹钟、悬浮窗（黑屏响铃靠它）。
+                // ColorOS 的「后台弹出界面 / 自启动」没有查询接口（AppOps 10021 报 Bad operation），
+                // 报状态只会骗人，所以不再列。
                 CheckRow("通知权限", notifOk, "去开启") { openNotifSettings(ctx) }
                 ThinDivider()
                 CheckRow("精确闹钟", exactOk, "去允许") { openExactAlarm(ctx) }
                 ThinDivider()
-                CheckRow("全屏提醒", fsiOk, "去允许") { openFullScreen(ctx) }
-                ThinDivider()
                 CheckRow("悬浮窗", lockOk, "去开启") { openOverlay(ctx) }
-                ThinDivider()
-                CheckRow("后台不受限制", battOk, "去设置") { openBattery(ctx) }
-                ThinDivider()
-                // ColorOS/MIUI 都不提供「后台弹出界面」「自启动」的查询接口（AppOps 10021 会报 Bad operation），
-                // 所以这里不能报「未开启」骗人，只给入口。
-                UnknownRow("后台弹出界面", "系统不提供检测，以系统设置里为准") { OemHelper.openBackgroundPopup(ctx) }
-                ThinDivider()
-                UnknownRow("自启动", "系统不提供检测，以系统设置里为准") { OemHelper.openAutoStart(ctx) }
                 ThinDivider()
                 KeyValue(
                     "上次响铃页",
@@ -306,17 +299,6 @@ private fun CheckRow(label: String, ok: Boolean, action: String, onFix: () -> Un
     }
 }
 
-@Composable
-private fun UnknownRow(label: String, sub: String, onClick: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(label, style = MaterialTheme.typography.bodyLarge, color = Ink)
-            Text(sub, style = MaterialTheme.typography.bodySmall, color = Ink3)
-        }
-        Spacer(Modifier.width(8.dp))
-        DiagButton("去开启", true) { onClick() }
-    }
-}
 
 @Composable
 private fun DiagButton(text: String, filled: Boolean, onClick: () -> Unit) {
