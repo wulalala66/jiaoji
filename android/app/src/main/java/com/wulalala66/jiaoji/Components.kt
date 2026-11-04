@@ -112,13 +112,8 @@ fun OvenPill(state: AppState, oven: String) {
 }
 
 /**
- * 页面底部的主按钮（保存 / 开始计时 / 完成检测），高度、圆角、禁用态统一在这里。
+ * 输入框配色：聚焦描边用品牌色，其余统一细灰边、白底。
  */
-/**
- * 数字输入框：统一小键盘、Next 跳转、样式，各处复用。
- * 用文本而不是 Double，避免「2.」这种中间状态被打断。
- */
-@Composable
 @Composable
 fun fieldColors() = OutlinedTextFieldDefaults.colors(
     focusedBorderColor = Brand,
@@ -128,6 +123,11 @@ fun fieldColors() = OutlinedTextFieldDefaults.colors(
     cursorColor = Brand,
 )
 
+/**
+ * 数字输入框：统一小键盘、Next 跳转、样式，各处复用。
+ * 用文本而不是 Double，避免「2.」这种中间状态被打断。
+ */
+@Composable
 fun NumField(
     value: String,
     onValueChange: (String) -> Unit,
@@ -155,6 +155,9 @@ fun NumField(
     )
 }
 
+/**
+ * 页面底部的主按钮（保存 / 导出 / 完成），高度、圆角、禁用态统一在这里。
+ */
 @Composable
 fun PrimaryButton(
     text: String,
