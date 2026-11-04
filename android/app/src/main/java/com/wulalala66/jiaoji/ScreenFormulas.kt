@@ -157,7 +157,7 @@ fun FormulaEditorScreen(state: AppState, formulaId: String, onBack: () -> Unit, 
                 colors = fieldColors(),
             )
 
-            AiCommentCard(state, formulaId, onOpenChat = onOpenAi)
+            AiAskCard(state, formulaId, onOpenChat = onOpenAi)
             Spacer(Modifier.height(8.dp))
 
             AppCard {

@@ -22,6 +22,8 @@ data class ChatMsg(
     val name: String? = null,
     /** 这一轮模型的思考过程（reasoning_content / reasoning / thinking 都收） */
     val thinking: String = "",
+    /** 这条回复思考了多久（毫秒），只在本地展示用 */
+    var thinkMs: Long = 0L,
 )
 
 /** 模型发起的一次工具调用 */

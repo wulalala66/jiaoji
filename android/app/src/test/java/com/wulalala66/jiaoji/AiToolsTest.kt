@@ -197,7 +197,7 @@ class AiToolsTest {
         val s = state()
         val f = s.formulas.first()
         val before = f.items.size
-        val raw = "{\"name\":\"add_item\",\"arguments\":{\"formulaId\":\"${'$'}{f.id}\",\"name\":\"新原料X\",\"percent\":3}}"
+        val raw = "{\"name\":\"add_item\",\"arguments\":{\"formulaId\":\"" + f.id + "\",\"name\":\"新原料X\",\"percent\":3}}"
         val (_, calls) = Ai.extractCalls(raw)
         assertEquals(1, calls.size)
         AiTools.run(s, calls[0].name, calls[0].args)
