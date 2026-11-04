@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  AI 接口地址是用户自己填的：很多人填的是内网 IP 或 http:// 的中转，
+  Android 9 起默认禁止明文 HTTP，会直接报
+  "Cleartext HTTP traffic to ... not permitted"。
+  这里放开明文，同时保留系统证书校验（不信任用户自签证书，避免把 Key 送到中间人手里）。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

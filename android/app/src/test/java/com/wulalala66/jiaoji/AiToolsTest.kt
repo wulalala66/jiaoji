@@ -205,4 +205,13 @@ class AiToolsTest {
         assertEquals(before + 1, after.items.size)
         assertTrue(after.items.any { it.name == "新原料X" })
     }
+
+    @Test
+    fun normalizeBaseFixesCommonInputs() {
+        assertEquals("http://demo.local:7864/v1", Ai.normalizeBase("demo.local:7864/v1"))
+        assertEquals("http://demo.local:7864/v1", Ai.normalizeBase("  http://demo.local:7864/v1/  "))
+        assertEquals("https://api.example.com/v1", Ai.normalizeBase("https://api.example.com/v1/chat/completions"))
+        assertEquals("http://a.b/v1", Ai.normalizeBase("a.b/v1/models"))
+        assertEquals("", Ai.normalizeBase("   "))
+    }
 }
