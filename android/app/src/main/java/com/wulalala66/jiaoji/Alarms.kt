@@ -145,6 +145,21 @@ object AlarmScheduler {
         return out
     }
 
+    /** 把之前排过的闹钟全部取消（下线闹钟功能、或升级后清残留） */
+    fun cancelAll(ctx: Context) {
+        val am = ctx.getSystemService(AlarmManager::class.java)
+        val prefs = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        val keys = prefs.getStringSet("ids", emptySet())?.toSet() ?: emptySet()
+        keys.forEach { key ->
+            try {
+                am?.cancel(alarmPendingIntent(ctx, key, "", "", "due", PendingIntent.FLAG_UPDATE_CURRENT))
+            } catch (_: Throwable) {
+            }
+        }
+        prefs.edit().remove("ids").remove("map").apply()
+        AlarmLog.add(ctx, "已取消全部闹钟（${keys.size} 个）")
+    }
+
     fun sync(ctx: Context, s: AppState) {
         val prefs = ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE)
         val old = prefs.getStringSet("ids", emptySet())?.toSet() ?: emptySet()

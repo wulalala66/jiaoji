@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -25,6 +26,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -38,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import java.util.Locale
 
@@ -105,7 +108,7 @@ fun FormulasScreen(state: AppState, onOpen: (String) -> Unit, onBack: () -> Unit
 
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
-fun FormulaEditorScreen(state: AppState, formulaId: String, onBack: () -> Unit) {
+fun FormulaEditorScreen(state: AppState, formulaId: String, onBack: () -> Unit, onOpenAi: () -> Unit = {}) {
     val f = state.formulaOf(formulaId)
     if (f == null) {
         Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -130,6 +133,21 @@ fun FormulaEditorScreen(state: AppState, formulaId: String, onBack: () -> Unit) 
             IconAction(Icons.Filled.ArrowBack, Ink, "返回") { onBack() }
             Spacer(Modifier.width(6.dp))
             Text("配料", style = MaterialTheme.typography.titleLarge, color = Ink)
+            Spacer(Modifier.weight(1f))
+            Surface(
+                onClick = onOpenAi,
+                shape = RoundedCornerShape(11.dp),
+                color = BrandSoft,
+            ) {
+                Row(
+                    Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("🤖", fontSize = 13.sp)
+                    Spacer(Modifier.width(6.dp))
+                    Text("问 AI", color = Brand, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
         }
 
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
@@ -142,6 +160,9 @@ fun FormulaEditorScreen(state: AppState, formulaId: String, onBack: () -> Unit) 
                 textStyle = MaterialTheme.typography.titleMedium,
                 colors = fieldColors(),
             )
+
+            AiCommentCard(state, formulaId, onOpenChat = onOpenAi)
+            Spacer(Modifier.height(8.dp))
 
             AppCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {

@@ -16,7 +16,27 @@ data class Settings(
     var keepAwake: Boolean = true,
     var keepAlive: Boolean = true,
     var notifyAsked: Boolean = false,
+    var ai: AiSettings = AiSettings(),
 )
+
+/**
+ * AI 助手的连接配置（OpenAI 兼容接口）。
+ * baseUrl 填到 /v1 为止，例如 https://api.openai.com/v1 或自己的中转地址。
+ */
+data class AiSettings(
+    var baseUrl: String = "",
+    var apiKey: String = "",
+    var model: String = "",
+    /** 思考档位："" 关 / low / medium / high */
+    var thinking: String = "",
+    /** 对话太长时自动压缩成摘要 */
+    var compress: Boolean = true,
+    /** 改配料时让 AI 顺手点评一句 */
+    var liveComment: Boolean = true,
+    var systemPrompt: String = "",
+) {
+    val ready: Boolean get() = baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()
+}
 
 data class BakePreset(var tempC: Int = 140, var minutes: Int = 30)
 
@@ -362,6 +382,15 @@ object Codec {
             put("keepAwake", s.settings.keepAwake)
             put("keepAlive", s.settings.keepAlive)
             put("notifyAsked", s.settings.notifyAsked)
+            put("ai", JSONObject().apply {
+                put("baseUrl", s.settings.ai.baseUrl)
+                put("apiKey", s.settings.ai.apiKey)
+                put("model", s.settings.ai.model)
+                put("thinking", s.settings.ai.thinking)
+                put("compress", s.settings.ai.compress)
+                put("liveComment", s.settings.ai.liveComment)
+                put("systemPrompt", s.settings.ai.systemPrompt)
+            })
         })
         o.put("types", JSONArray().apply {
             s.types.forEach { t ->
@@ -482,6 +511,17 @@ object Codec {
                 keepAwake = j.optBoolean("keepAwake", true),
                 keepAlive = j.optBoolean("keepAlive", true),
                 notifyAsked = j.optBoolean("notifyAsked", false),
+                ai = j.optJSONObject("ai")?.let { a ->
+                    AiSettings(
+                        baseUrl = a.optString("baseUrl", ""),
+                        apiKey = a.optString("apiKey", ""),
+                        model = a.optString("model", ""),
+                        thinking = a.optString("thinking", ""),
+                        compress = a.optBoolean("compress", true),
+                        liveComment = a.optBoolean("liveComment", true),
+                        systemPrompt = a.optString("systemPrompt", ""),
+                    )
+                } ?: AiSettings(),
             )
         }
         val types = o.optJSONArray("types") ?: JSONArray()

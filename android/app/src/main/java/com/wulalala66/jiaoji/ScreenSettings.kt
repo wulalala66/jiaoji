@@ -1,522 +1,398 @@
 package com.wulalala66.jiaoji
 
-import android.app.AlarmManager
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowForward
-import androidx.compose.material.icons.filled.Delete
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ripple
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
 import androidx.compose.ui.unit.sp
-import androidx.core.app.NotificationManagerCompat
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
+/**
+ * 设置页：AI 配置（地址 / Key / 模型 / 思考档位 / 上下文压缩）+ 数据备份 + 关于。
+ */
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 fun SettingsScreen(
     state: AppState,
-    onOpenType: (String?) -> Unit,
     onOpenDiagnostics: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
-    val s = state.settings
-    var showAddCustomer by remember { mutableStateOf(false) }
-    var showAddOven by remember { mutableStateOf(false) }
-    var renameOvenTarget by remember { mutableStateOf<String?>(null) }
-    var confirmDeleteOven by remember { mutableStateOf<String?>(null) }
-    var renameTarget by remember { mutableStateOf<String?>(null) }
+    val ai = state.settings.ai
+    val scope = rememberCoroutineScope()
+
+    var showKey by remember { mutableStateOf(false) }
+    var models by remember { mutableStateOf<List<String>>(emptyList()) }
+    var pickModel by remember { mutableStateOf(false) }
+    var loading by remember { mutableStateOf(false) }
+    var testResult by remember { mutableStateOf("") }
+    var testing by remember { mutableStateOf(false) }
+    var showPrompt by remember { mutableStateOf(false) }
     var showImport by remember { mutableStateOf(false) }
-    var confirmClear by remember { mutableStateOf(false) }
-    var confirmDeleteType by remember { mutableStateOf<String?>(null) }
-    var alarmGranted by remember { mutableStateOf(AlarmScheduler.canExact(ctx)) }
-    var notifOn by remember { mutableStateOf(NotificationManagerCompat.from(ctx).areNotificationsEnabled()) }
-    var overlayOn by remember { mutableStateOf(overlayOk(ctx)) }
-    var battOk by remember { mutableStateOf(ignoreBattOk(ctx)) }
-    var fsiOk by remember { mutableStateOf(OemHelper.canUseFullScreenIntent(ctx)) }
-    // 通知权限是真正的系统运行时权限，可以直接弹系统框问用户要
-    val notifLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        notifOn = granted || NotificationManagerCompat.from(ctx).areNotificationsEnabled()
+    var showClear by remember { mutableStateOf(false) }
+
+    val baseState = rememberLocalText(ai.baseUrl, "ai-base") { v ->
+        Repo.I.updateSettings { it.copy(ai = it.ai.copy(baseUrl = v.trim())) }
+    }
+    val keyState = rememberLocalText(ai.apiKey, "ai-key") { v ->
+        Repo.I.updateSettings { it.copy(ai = it.ai.copy(apiKey = v.trim())) }
+    }
+    val modelState = rememberLocalText(ai.model, "ai-model") { v ->
+        Repo.I.updateSettings { it.copy(ai = it.ai.copy(model = v.trim())) }
+    }
+    val promptState = rememberLocalText(ai.systemPrompt, "ai-prompt") { v ->
+        Repo.I.updateSettings { it.copy(ai = it.ai.copy(systemPrompt = v)) }
     }
 
-    // 用户去系统设置里开了权限再回来，这里要重新读一次，不然一直显示「未开启」
-    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
-        notifOn = NotificationManagerCompat.from(ctx).areNotificationsEnabled()
-        alarmGranted = AlarmScheduler.canExact(ctx)
-        overlayOn = overlayOk(ctx)
-        battOk = ignoreBattOk(ctx)
-        fsiOk = OemHelper.canUseFullScreenIntent(ctx)
-    }
-
-    LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        item {
-            Column {
-                Text("设置", style = MaterialTheme.typography.displaySmall, color = Ink)
-                Spacer(Modifier.height(2.dp))
-                Text("提醒、产品类型、客户、数据备份", style = MaterialTheme.typography.bodyMedium, color = Ink3)
+    fun fetchModels() {
+        if (loading) return
+        loading = true
+        testResult = ""
+        scope.launch {
+            try {
+                val list = withContext(Dispatchers.IO) { Ai.fetchModels(Repo.I.state.value.settings.ai) }
+                models = list
+                if (list.isEmpty()) testResult = "接口没有返回模型，检查地址对不对"
+                else if (Repo.I.state.value.settings.ai.model.isBlank()) {
+                    Repo.I.updateSettings { it.copy(ai = it.ai.copy(model = list.first())) }
+                    modelState.value = list.first()
+                }
+            } catch (e: Throwable) {
+                testResult = "拉取失败：" + (e.message ?: "未知错误")
+            } finally {
+                loading = false
             }
         }
+    }
 
-        item { SectionHeader("提醒") }
+    fun test() {
+        if (testing) return
+        testing = true
+        testResult = ""
+        scope.launch {
+            try {
+                val r = Ai.quick(
+                    Repo.I.state.value.settings.ai,
+                    "你是连通性测试助手，只回一个词。",
+                    "回一个词：收到",
+                )
+                testResult = "通了：" + r.take(60)
+            } catch (e: Throwable) {
+                testResult = "失败：" + (e.message ?: "未知错误")
+            } finally {
+                testing = false
+            }
+        }
+    }
 
-        item {
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
+        Row(Modifier.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("设置", style = MaterialTheme.typography.titleLarge, color = Ink)
+        }
+
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+
+            // ---------------- AI ----------------
+            Row(
+                Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("AI 助手", style = MaterialTheme.typography.titleMedium, color = Ink)
+                Spacer(Modifier.weight(1f))
+                Pill(
+                    if (ai.ready) "已配置" else "未配置",
+                    if (ai.ready) Ok else Warn,
+                    if (ai.ready) OkSoft else WarnSoft,
+                )
+            }
+
             AppCard {
+                Text(
+                    "填一个 OpenAI 兼容的接口就行（/v1 结尾），模型列表会自动拉。",
+                    color = Ink3, fontSize = 12.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = baseState.value,
+                    onValueChange = { baseState.value = it },
+                    label = { Text("API 地址", fontSize = 12.sp) },
+                    placeholder = { Text("https://xxx/v1", color = Ink3, fontSize = 13.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = Ink),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Next),
+                    colors = fieldColors(),
+                )
+                Spacer(Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = keyState.value,
+                    onValueChange = { keyState.value = it },
+                    label = { Text("API Key", fontSize = 12.sp) },
+                    placeholder = { Text("sk-…", color = Ink3, fontSize = 13.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = Ink),
+                    visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Next),
+                    trailingIcon = {
+                        TextButton(onClick = { showKey = !showKey }) {
+                            Text(if (showKey) "藏" else "看", color = Ink3, fontSize = 12.sp)
+                        }
+                    },
+                    colors = fieldColors(),
+                )
+                Spacer(Modifier.height(8.dp))
+
+                OutlinedTextField(
+                    value = modelState.value,
+                    onValueChange = { modelState.value = it },
+                    label = { Text("模型", fontSize = 12.sp) },
+                    placeholder = { Text("点右边拉取，或直接填", color = Ink3, fontSize = 13.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = Ink),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    trailingIcon = {
+                        TextButton(onClick = { fetchModels() }) {
+                            Text(if (loading) "拉取中…" else "拉取", color = Brand, fontSize = 12.sp)
+                        }
+                    },
+                    colors = fieldColors(),
+                )
+
+                if (models.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text("拉到 ${models.size} 个模型，点一个就选中", color = Ink3, fontSize = 11.sp)
+                    Spacer(Modifier.height(6.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        models.take(12).forEach { m ->
+                            ChoiceChip(m, modelState.value == m) {
+                                modelState.value = m
+                                Repo.I.updateSettings { it.copy(ai = it.ai.copy(model = m)) }
+                            }
+                        }
+                        if (models.size > 12) {
+                            ChoiceChip("全部 ${models.size} 个", false) { pickModel = true }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp))
+                ThinDivider()
+                Spacer(Modifier.height(10.dp))
+
+                Text("思考档位", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Spacer(Modifier.height(6.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    listOf("" to "默认", "low" to "低", "medium" to "中", "high" to "高").forEach { (v, label) ->
+                        ChoiceChip(label, ai.thinking == v) {
+                            Repo.I.updateSettings { it.copy(ai = it.ai.copy(thinking = v)) }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "越高越慢越贵，配料这种任务「低」通常就够；改完立刻问它一个问题看效果。",
+                    color = Ink3, fontSize = 11.sp,
+                )
+
+                Spacer(Modifier.height(10.dp))
+                ToggleRow("实时点评", "改配方后自动让 AI 看一眼（有防抖，不刷屏）", ai.liveComment) { v ->
+                    Repo.I.updateSettings { it.copy(ai = it.ai.copy(liveComment = v)) }
+                }
+                ToggleRow("上下文压缩", "聊久了自动把前面的对话压成摘要，省 token", ai.compress) { v ->
+                    Repo.I.updateSettings { it.copy(ai = it.ai.copy(compress = v)) }
+                }
+
+                Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("提前提醒", style = MaterialTheme.typography.titleSmall, color = Ink)
-                        Text("到点前多久先响一声", style = MaterialTheme.typography.bodySmall, color = Ink3)
+                    TextButton(onClick = { showPrompt = !showPrompt }) {
+                        Text(if (showPrompt) "收起系统提示词" else "系统提示词（高级）", color = Ink2, fontSize = 13.sp)
                     }
-                    StepButton("−") {
-                        Repo.I.updateSettings { it.copy(preAlertMinutes = (it.preAlertMinutes - 1).coerceAtLeast(0)) }
+                    Spacer(Modifier.weight(1f))
+                    if (showPrompt) {
+                        TextButton(onClick = {
+                            promptState.value = ""
+                            Repo.I.updateSettings { it.copy(ai = it.ai.copy(systemPrompt = "")) }
+                        }) { Text("恢复默认", color = Ink3, fontSize = 12.sp) }
                     }
-                    Text(
-                        "${s.preAlertMinutes} 分",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Ink,
-                        modifier = Modifier.padding(horizontal = 10.dp),
+                }
+                if (showPrompt) {
+                    OutlinedTextField(
+                        value = promptState.value,
+                        onValueChange = { promptState.value = it },
+                        modifier = Modifier.fillMaxWidth().height(150.dp),
+                        placeholder = { Text(Ai.defaultSystemPrompt(), color = Ink3, fontSize = 12.sp) },
+                        textStyle = MaterialTheme.typography.bodySmall.copy(color = Ink),
+                        colors = fieldColors(),
                     )
-                    StepButton("+") {
-                        Repo.I.updateSettings { it.copy(preAlertMinutes = (it.preAlertMinutes + 1).coerceAtMost(60)) }
+                }
+
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    PrimaryButton(
+                        text = if (testing) "测试中…" else "测试连接",
+                        modifier = Modifier.weight(1f),
+                        enabled = !testing && ai.baseUrl.isNotBlank() && ai.apiKey.isNotBlank(),
+                    ) { test() }
+                    Spacer(Modifier.width(8.dp))
+                    Surface(
+                        onClick = onOpenDiagnostics,
+                        shape = RoundedCornerShape(12.dp),
+                        color = SoftBg,
+                    ) {
+                        Text(
+                            "诊断",
+                            color = Ink2, fontSize = 14.sp,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        )
+                    }
+                }
+                if (testResult.isNotBlank()) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        testResult,
+                        color = if (testResult.startsWith("通了")) Ok else Danger,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+
+            // ---------------- 数据 ----------------
+            SectionHeader("数据")
+            AppCard {
+                Text(
+                    "配方、条件表都存在手机本地，换手机用备份文件搬过去。",
+                    color = Ink3, fontSize = 12.sp,
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SmallAction("导出备份") {
+                        Share.json(ctx, "胶记备份.json", Repo.I.exportJson())
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    SmallAction("导入备份") {
+                        showImport = true
                     }
                 }
                 Spacer(Modifier.height(6.dp))
-                ToggleRow("响铃", "到点循环响铃，点「已取出」停止", s.sound) { v ->
-                    Repo.I.updateSettings { it.copy(sound = v) }
-                }
-                ToggleRow("振动", "安静环境下也能感觉到", s.vibrate) { v ->
-                    Repo.I.updateSettings { it.copy(vibrate = v) }
-                }
-                ToggleRow("保持屏幕常亮", "看计时的时候不会黑屏", s.keepAwake) { v ->
-                    Repo.I.updateSettings { it.copy(keepAwake = v) }
-                }
-                ToggleRow(
-                    "锁屏倒计时（常驻通知）",
-                    "锁屏和状态栏常挂一条倒计时，能看是哪个烘箱、还剩多久；也让系统不容易把胶记杀掉",
-                    s.keepAlive,
-                ) { v ->
-                    Repo.I.updateSettings { it.copy(keepAlive = v) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SmallAction("清空配方") {
+                        showClear = true
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "${state.formulas.size} 个配方 · ${state.products.size} 条条件",
+                        color = Ink3, fontSize = 12.sp,
+                    )
                 }
             }
-        }
 
-        item {
+            // ---------------- 关于 ----------------
+            SectionHeader("关于")
             AppCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
+                        Text("胶记 GlueLab", color = Ink, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                         Text(
-                            if (notifOn) "通知权限已开启" else "通知权限未开启",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = if (notifOn) Ink else Danger,
-                        )
-                        Text(
-                            "没权限时只会在 App 内响铃，锁屏可能收不到",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Ink3,
+                            "版本 ${BuildConfig.VERSION_NAME} · 比重 / 配料 / 条件表 / AI",
+                            color = Ink3, fontSize = 12.sp,
                         )
                     }
-                    if (!notifOn) {
-                        SmallButton("允许通知", true) {
-                            if (Build.VERSION.SDK_INT >= 33) {
-                                notifLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                            } else {
-                                val i = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                                    .putExtra(Settings.EXTRA_APP_PACKAGE, ctx.packageName)
-                                runCatching { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            if (alarmGranted) "精确闹钟已允许" else "精确闹钟未允许",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = if (alarmGranted) Ink else Danger,
-                        )
-                        Text(
-                            "允许后到点误差在几秒内，否则可能延迟",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Ink3,
-                        )
-                    }
-                    if (!alarmGranted) {
-                        SmallButton("去允许") {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                val i = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
-                                    .setData(Uri.parse("package:" + ctx.packageName))
-                                runCatching { ctx.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
-                            }
-                        }
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-                // 黑屏到点能不能直接全屏响铃，实际就看这一项——系统里叫「悬浮窗 / 显示在其他应用上层」，
-                // 2.3.1 起就是这么判断的，实测给了它黑屏就能出响铃页。
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            if (overlayOn) "悬浮窗已开启" else "悬浮窗未开启",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = if (overlayOn) Ink else Danger,
-                        )
-                        Text(
-                            if (overlayOn) "黑屏到点会直接全屏响铃"
-                            else "不开启的话，黑屏到点会先让你解锁再响铃",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Ink3,
-                        )
-                    }
-                    if (!overlayOn) {
-                        SmallButton("去开启", true) { openOverlay(ctx) }
-                    }
-                }
-                // Android 14 起「全屏通知」是单独的开关。系统读出来的值不一定准（ColorOS 上就报 true
-                // 却照样不接管屏幕），所以这一行常驻显示，方便随时点进去确认。
-                if (Build.VERSION.SDK_INT >= 34) {
-                    Spacer(Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                if (fsiOk) "全屏通知已允许" else "全屏通知未允许",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = if (fsiOk) Ink else Danger,
-                            )
-                            Text(
-                                if (fsiOk) "到点会直接接管屏幕；不对的话点「去确认」看一眼系统里的开关"
-                                else "不开的话到点只有横幅，不会全屏",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Ink3,
-                            )
-                        }
-                        SmallButton(if (fsiOk) "去确认" else "允许", true) {
-                            OemHelper.openFullScreenIntentSettings(ctx)
-                        }
-                    }
-                }
-                // 电池优化白名单：系统清理后台时，加了白名单会稳很多（点一下就是系统自己的对话框）
-                if (!battOk) {
-                    Spacer(Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                "后台可能被系统清理",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = Warn,
-                            )
-                            Text(
-                                "允许后台运行，响铃更稳",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Ink3,
-                            )
-                        }
-                        SmallButton("允许", true) { OemHelper.openBatterySettings(ctx) }
-                    }
-                }
-            }
-        }
-
-        item { SectionHeader("产品类型", action = "＋ 新建", onAction = { onOpenType(null) }) }
-
-        items(state.types, key = { it.id }) { t ->
-            AppCard(onClick = { onOpenType(t.id) }) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text(t.name, style = MaterialTheme.typography.titleSmall, color = Ink)
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            buildString {
-                                append("${t.tests.size} 个测试项")
-                                if (t.bakes.isNotEmpty()) {
-                                    append(" · ")
-                                    append(t.bakes.joinToString(" / ") { "${it.tempC}℃${it.minutes}分" })
-                                }
-                            },
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Ink3,
-                        )
-                    }
-                    if (t.id != "other") {
-                        IconAction(Icons.Filled.Delete, Ink3, "删除类型") { confirmDeleteType = t.id }
-                    }
-                    Icon(Icons.Filled.ArrowForward, null, tint = Ink3, modifier = Modifier.size(18.dp))
-                }
-            }
-        }
-
-        item { SectionHeader("烘箱", action = "＋ 新增", onAction = { showAddOven = true }) }
-
-        item {
-            AppCard {
-                Text(
-                    "一个烘箱同时只放一个样品。以后车间加新烘箱，在这里添上就行，计时和提醒会自动跟上。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Ink3,
-                )
-                Spacer(Modifier.height(10.dp))
-                state.ovens.forEachIndexed { i, ov ->
-                    if (i > 0) Spacer(Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Dot(ovenAccent(ov.colorIdx), 8)
-                        Spacer(Modifier.width(8.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(ov.name, style = MaterialTheme.typography.bodyLarge, color = Ink)
-                            val b = state.bakeInOven(ov.id)
-                            Text(
-                                if (b == null) "空闲" else "占用中 · ${Fmt.hm(b.endAt)} 出炉",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (b == null) Ink3 else ovenAccent(ov.colorIdx),
-                            )
-                        }
-                        SmallButton("改名") { renameOvenTarget = ov.id }
-                        Spacer(Modifier.width(6.dp))
-                        IconAction(Icons.Filled.Delete, Ink3, "删除烘箱") { confirmDeleteOven = ov.id }
-                    }
-                }
-            }
-        }
-
-        item { SectionHeader("客户", action = "＋ 添加", onAction = { showAddCustomer = true }) }
-
-        item {
-            AppCard {
-                if (state.customers.isEmpty()) {
-                    Text("还没有客户", style = MaterialTheme.typography.bodyMedium, color = Ink3)
-                } else {
-                    state.customers.forEachIndexed { i, c ->
-                        if (i > 0) Spacer(Modifier.height(8.dp))
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(c, style = MaterialTheme.typography.bodyLarge, color = Ink, modifier = Modifier.weight(1f))
-                            SmallButton("改名") { renameTarget = c }
-                            Spacer(Modifier.width(6.dp))
-                            IconAction(Icons.Filled.Delete, Ink3, "删除客户") { Repo.I.removeCustomer(c) }
-                        }
-                    }
-                }
-            }
-        }
-
-        item { SectionHeader("数据") }
-
-        item {
-            AppCard {
-                Text(
-                    "数据保存在手机本地。换手机或重装前先导出备份，导入时把备份内容粘贴进来即可。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Ink3,
-                )
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(MaterialTheme.shapes.small)
-                            .background(SoftBg)
-                            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(),
-            ) {
-                                Share.json(
-                                    ctx,
-                                    "jiaoji-backup-${Fmt.md(System.currentTimeMillis())}.json",
-                                    Repo.I.exportJson(),
-                                )
-                            }
-                            .padding(vertical = 11.dp),
-                        contentAlignment = Alignment.Center,
-                    ) { Text("导出备份", color = Ink2, style = MaterialTheme.typography.titleSmall) }
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(MaterialTheme.shapes.small)
-                            .background(SoftBg)
-                            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(),
-            ) { showImport = true }
-                            .padding(vertical = 11.dp),
-                        contentAlignment = Alignment.Center,
-                    ) { Text("导入备份", color = Ink2, style = MaterialTheme.typography.titleSmall) }
+                    Pill("本地存储", Ink2, SoftBg)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "清空全部数据",
-                    color = Danger,
-                    style = MaterialTheme.typography.titleSmall,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(),
-            ) { confirmClear = true }
-                        .padding(vertical = 10.dp),
+                    "AI 走你自己的接口，Key 只存在这台手机上，不上传任何服务器。",
+                    color = Ink3, fontSize = 12.sp,
                 )
             }
-        }
 
-        item { SectionHeader("关于") }
-
-        item {
-            AppCard(onClick = onOpenDiagnostics) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("自检与诊断", style = MaterialTheme.typography.titleMedium, color = Ink)
-                    Spacer(Modifier.weight(1f))
-                    Text("点开", style = MaterialTheme.typography.bodySmall, color = Brand)
-                }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "响铃不响、点了没反应？这里能看到权限状态、已排定的闹钟时间和最近的动作记录。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Ink3,
-                )
-            }
-        }
-
-        item {
-            AppCard {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("胶记", style = MaterialTheme.typography.titleMedium, color = Ink)
-                    Spacer(Modifier.weight(1f))
-                    Text("v" + BuildConfig.VERSION_NAME, style = MaterialTheme.typography.bodySmall, color = Ink3)
-                }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "取样 · 烘烤 · 检测。烘烤和取样都挂在系统闹钟上，App 退到后台甚至被划掉也会准时响铃；同时提供「系统倒计时」，可以把计时交给手机自带的时钟 App。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Ink3,
-                )
-            }
+            Spacer(Modifier.height(28.dp))
         }
     }
 
-    if (showAddOven) {
-        InputDialog(
-            title = "新增烘箱",
-            initial = "",
-            label = "烘箱名称",
-            onOk = { v ->
-                Repo.I.addOven(v)
-                showAddOven = false
-            },
-            onDismiss = { showAddOven = false },
-        )
-    }
-
-    renameOvenTarget?.let { id ->
-        val cur = state.ovenOf(id)?.name ?: ""
-        InputDialog(
-            title = "烘箱改名",
-            initial = cur,
-            label = "烘箱名称",
-            onOk = { v ->
-                Repo.I.renameOven(id, v)
-                renameOvenTarget = null
-            },
-            onDismiss = { renameOvenTarget = null },
-        )
-    }
-
-    confirmDeleteOven?.let { id ->
-        val b = state.bakeInOven(id)
+    if (pickModel) {
         AlertDialog(
-            onDismissRequest = { confirmDeleteOven = null },
-            title = { Text("删除这个烘箱？") },
+            onDismissRequest = { pickModel = false },
+            title = { Text("选模型", color = Ink) },
             text = {
-                Text(
-                    when {
-                        b != null -> "${state.ovenName(id)}里还放着样品，等它出炉后再删。"
-                        state.ovens.size <= 1 -> "至少要留一个烘箱。"
-                        else -> "删除后这个烘箱的计时记录不再显示，已出炉的记录会一起清掉。"
+                Column(Modifier.height(360.dp).verticalScroll(rememberScrollState())) {
+                    models.forEach { m ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = ripple(),
+                                ) {
+                                    modelState.value = m
+                                    Repo.I.updateSettings { it.copy(ai = it.ai.copy(model = m)) }
+                                    pickModel = false
+                                }
+                                .padding(vertical = 10.dp),
+                        ) {
+                            Text(
+                                m,
+                                color = if (m == modelState.value) Brand else Ink,
+                                fontSize = 14.sp,
+                                fontWeight = if (m == modelState.value) FontWeight.SemiBold else FontWeight.Normal,
+                            )
+                        }
                     }
-                )
+                }
             },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        Repo.I.removeOven(id)
-                        confirmDeleteOven = null
-                    },
-                    enabled = b == null && state.ovens.size > 1,
-                ) { Text("删除", color = Danger) }
+                TextButton(onClick = { pickModel = false }) { Text("关闭", color = Ink2) }
             },
-            dismissButton = { TextButton(onClick = { confirmDeleteOven = null }) { Text("取消") } },
-        )
-    }
-
-    if (showAddCustomer) {
-        InputDialog(
-            title = "添加客户",
-            initial = "",
-            label = "客户名称",
-            onOk = { v ->
-                Repo.I.addCustomer(v)
-                showAddCustomer = false
-            },
-            onDismiss = { showAddCustomer = false },
-        )
-    }
-
-    renameTarget?.let { old ->
-        InputDialog(
-            title = "客户改名",
-            initial = old,
-            label = "客户名称",
-            onOk = { v ->
-                Repo.I.renameCustomer(old, v)
-                renameTarget = null
-            },
-            onDismiss = { renameTarget = null },
         )
     }
 
@@ -525,61 +401,55 @@ fun SettingsScreen(
             onDismiss = { showImport = false },
             onOk = { text ->
                 showImport = false
-                Repo.I.importJson(text)
+                val ok = Repo.I.importJson(text)
+                android.widget.Toast.makeText(
+                    ctx,
+                    if (ok) "导入成功" else "这份备份看不懂",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
             },
         )
     }
 
-    if (confirmClear) {
+    if (showClear) {
         AlertDialog(
-            onDismissRequest = { confirmClear = false },
-            title = { Text("清空全部数据？") },
-            text = { Text("样品、烘烤、记录都会被删除，不能恢复。建议先导出备份。") },
+            onDismissRequest = { showClear = false },
+            title = { Text("清空配方？", color = Ink) },
+            text = { Text("只会删配方和条件表，AI 配置和客户名单保留。", color = Ink2, fontSize = 14.sp) },
             confirmButton = {
                 TextButton(onClick = {
-                    Repo.I.clearAll()
-                    confirmClear = false
+                    Repo.I.state.value.formulas.toList().forEach { Repo.I.removeFormula(it.id) }
+                    showClear = false
                 }) { Text("清空", color = Danger) }
             },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("取消") } },
-        )
-    }
-
-    confirmDeleteType?.let { id ->
-        AlertDialog(
-            onDismissRequest = { confirmDeleteType = null },
-            title = { Text("删除这个产品类型？") },
-            text = { Text("已经取样记录的数据不受影响。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    Repo.I.deleteType(id)
-                    confirmDeleteType = null
-                }) { Text("删除", color = Danger) }
-            },
-            dismissButton = { TextButton(onClick = { confirmDeleteType = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { showClear = false }) { Text("算了", color = Ink2) } },
         )
     }
 }
 
+/* ---------------- 小控件 ---------------- */
+
 @Composable
 private fun ToggleRow(title: String, sub: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
+        Modifier
             .fillMaxWidth()
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = ripple(),
             ) { onChange(!checked) }
             .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = Ink)
-            Text(sub, style = MaterialTheme.typography.bodySmall, color = Ink3)
+            Text(title, color = Ink, fontSize = 14.sp)
+            Text(sub, color = Ink3, fontSize = 11.sp)
         }
+        Spacer(Modifier.width(10.dp))
         Switch(
             checked = checked,
-            onCheckedChange = onChange,
+            onCheckedChange = { onChange(it) },
+            modifier = Modifier.size(width = 44.dp, height = 26.dp),
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = Brand,
@@ -592,121 +462,35 @@ private fun ToggleRow(title: String, sub: String, checked: Boolean, onChange: (B
 }
 
 @Composable
-fun InputDialog(
-    title: String,
-    initial: String,
-    label: String,
-    onOk: (String) -> Unit,
-    onDismiss: () -> Unit = {},
-) {
-    var v by remember { mutableStateOf(initial) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            OutlinedTextField(
-                value = v,
-                onValueChange = { v = it },
-                label = { Text(label) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                colors = fieldColors(),
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = { onOk(v.trim()) }, enabled = v.isNotBlank()) { Text("确定") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
+private fun SmallAction(text: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        color = SoftBg,
+    ) {
+        Text(text, color = Ink2, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp))
+    }
 }
 
 @Composable
 private fun ImportDialog(onDismiss: () -> Unit, onOk: (String) -> Unit) {
-    var v by remember { mutableStateOf("") }
+    var text by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("导入备份") },
+        title = { Text("粘贴备份内容", color = Ink) },
         text = {
-            Column {
-                Text(
-                    "把之前导出的备份内容粘贴到下面：",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Ink3,
-                )
-                Spacer(Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = v,
-                    onValueChange = { v = it },
-                    placeholder = { Text("{\"settings\":…}", color = Ink3, fontSize = 12.sp) },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 4,
-                    maxLines = 8,
-                    shape = MaterialTheme.shapes.small,
-                    colors = fieldColors(),
-                )
-            }
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                modifier = Modifier.fillMaxWidth().height(160.dp),
+                placeholder = { Text("把导出的 json 粘进来", color = Ink3, fontSize = 12.sp) },
+                textStyle = MaterialTheme.typography.bodySmall.copy(color = Ink),
+                colors = fieldColors(),
+            )
         },
         confirmButton = {
-            TextButton(onClick = { onOk(v) }, enabled = v.isNotBlank()) { Text("导入") }
+            TextButton(onClick = { if (text.isNotBlank()) onOk(text) }) { Text("导入", color = Brand) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("取消", color = Ink2) } },
     )
-}
-
-@Composable
-fun ToolRow(emoji: String, title: String, sub: String, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = ripple(),
-            ) { onClick() }
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(emoji, fontSize = 18.sp)
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall, color = Ink)
-            Text(sub, style = MaterialTheme.typography.bodySmall, color = Ink3)
-        }
-        Text("›", color = Ink3, fontSize = 18.sp)
-    }
-}
-
-
-@Composable
-private fun PermRow(
-    title: String,
-    sub: String,
-    bad: Boolean,
-    action: String,
-    always: Boolean = false,
-    onClick: () -> Unit,
-) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.titleSmall,
-                color = if (bad) Danger else Ink,
-            )
-            Text(sub, style = MaterialTheme.typography.bodySmall, color = Ink3)
-        }
-        if (bad || always) SmallButton(action) { onClick() }
-    }
-}
-
-private fun overlayOk(ctx: android.content.Context): Boolean = try {
-    android.provider.Settings.canDrawOverlays(ctx)
-} catch (_: Throwable) {
-    true
-}
-
-private fun ignoreBattOk(ctx: android.content.Context): Boolean = try {
-    val pm = ctx.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
-    pm.isIgnoringBatteryOptimizations(ctx.packageName)
-} catch (_: Throwable) {
-    true
 }

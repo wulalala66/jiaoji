@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ripple
@@ -118,6 +119,15 @@ fun OvenPill(state: AppState, oven: String) {
  * 用文本而不是 Double，避免「2.」这种中间状态被打断。
  */
 @Composable
+@Composable
+fun fieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = Brand,
+    unfocusedBorderColor = Line,
+    focusedContainerColor = Color.White,
+    unfocusedContainerColor = Color.White,
+    cursorColor = Brand,
+)
+
 fun NumField(
     value: String,
     onValueChange: (String) -> Unit,

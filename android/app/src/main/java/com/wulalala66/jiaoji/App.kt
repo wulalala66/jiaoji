@@ -1,28 +1,31 @@
 package com.wulalala66.jiaoji
 
 import android.app.Application
-import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
+import android.content.Intent
 
+/**
+ * 这一版把「烘箱 / 取样 / 闹钟」整套下线，只留比重、配料、条件表、设置。
+ * onCreate 里做三件事：
+ *  1. 初始化存储；
+ *  2. 把上一版排定的闹钟和常驻通知全部取消，避免升级后还冒出来响铃页；
+ *  3. 崩溃信息写日志，方便用户从诊断页复制给我。
+ */
 class App : Application() {
-
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-
-    /** key → 已经响过的那个时间点；endAt / dueAt 变了（延后、改时长）才会再响一次 */
-    private val fired = HashMap<String, Long>()
 
     override fun onCreate() {
         super.onCreate()
         Repo.I.init(this)
         RingNotif.ensureChannel(this)
-        KeepAliveService.ensureChannel(this)
-        // 任何崩溃都先写进日志（自检页 → 复制日志），不然界面上什么都没留下
+
+        // 老版本留下的闹钟/前台服务：一律清掉
+        try {
+            AlarmScheduler.cancelAll(this)
+            stopService(Intent(this, RingService::class.java))
+            stopService(Intent(this, KeepAliveService::class.java))
+            KeepAliveService.running = false
+        } catch (_: Throwable) {
+        }
+
         val prev = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             try {
@@ -30,65 +33,6 @@ class App : Application() {
             } catch (_: Throwable) {
             }
             prev?.uncaughtException(t, e)
-        }
-        KeepAlive.sync(this, Repo.I.state.value)
-        scope.launch { watchDueTimes() }
-    }
-
-    /**
-     * 进程内到点检查。
-     *
-     * AlarmManager 负责「进程被系统杀掉」的情况；但只要进程还活着（放在后台、屏幕黑着），
-     * 这条每秒一次的检查就一定能把到点的那一条抓出来——不依赖闹钟权限、不依赖
-     * 「后台弹出界面」，是最后一道保险。
-     */
-    private suspend fun watchDueTimes() {
-        while (scope.isActive) {
-            delay(1_000L)
-            try {
-                checkOnce()
-            } catch (_: Throwable) {
-            }
-        }
-    }
-
-    private fun checkOnce() {
-        val s = Repo.I.state.value
-        KeepAlive.sync(this, s)
-        val now = System.currentTimeMillis()
-        val grace = 5 * 60_000L
-
-        s.bakes.forEach { b ->
-            if (b.status == "done" || b.endAt > now || now - b.endAt > grace) return@forEach
-            val key = "b:${b.id}"
-            if (fired[key] == b.endAt) return@forEach
-            fired[key] = b.endAt
-            fire(key, "烘烤完成 · 该出炉了", "${b.label} · ${b.tempC}℃ ${b.minutes}分钟 · ${s.ovenName(b.oven)}")
-        }
-
-        s.sampling.forEach { t ->
-            if (t.status != "pending" || t.dueAlarmed || t.dueAt > now || now - t.dueAt > grace) return@forEach
-            val key = "s:${t.id}"
-            if (fired[key] == t.dueAt) return@forEach
-            fired[key] = t.dueAt
-            fire(key, "取样时间到", "${t.customer} · ${s.typeName(t.typeId)}")
-        }
-    }
-
-    private fun fire(key: String, title: String, body: String) {
-        AlarmLog.add(this, "⏰ 进程内到点 $key")
-        try {
-            ContextCompat.startForegroundService(this, RingService.intent(this, key, title, body, "due"))
-        } catch (e: Throwable) {
-            AlarmLog.add(this, "✗ 服务启动失败 ${e.javaClass.simpleName}")
-        }
-        // 交给系统去弹全屏页（最稳），同时自己再拉一次
-        RingPeek.show(this)
-        RingNotif.postFullScreen(this, key, title, body, "due")
-        RingLaunch.fire(this, key, title, body, "due")
-        try {
-            NotificationManagerCompat.from(this).notify(RingNotif.ID, RingNotif.build(this, key, title, body, "due"))
-        } catch (_: Throwable) {
         }
     }
 }

@@ -35,7 +35,6 @@ class KeepAliveService : Service() {
 
         @Volatile
         var running: Boolean = false
-            private set
 
         fun intent(ctx: Context): Intent = Intent(ctx, KeepAliveService::class.java)
 
