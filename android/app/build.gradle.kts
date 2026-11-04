@@ -62,6 +62,8 @@ android {
     }
 
     testOptions {
+        // 让 Robolectric 能真的把 Compose 画进 Bitmap（截图测试用）
+        unitTests.all { it.systemProperty("robolectric.pixelCopyRenderMode", "hardware") }
         unitTests {
             isIncludeAndroidResources = true
             isReturnDefaultValues = true
