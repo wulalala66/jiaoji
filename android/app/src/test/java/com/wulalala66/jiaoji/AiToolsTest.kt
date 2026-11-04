@@ -24,6 +24,11 @@ class AiToolsTest {
         Repo.I.init(ctx())
         Repo.I.clearAll()
         AppConfig.debounceMs = 0
+        // 每个用例自己造一个配方：clearAll 不清配方，靠历史数据会互相污染
+        state().formulas.map { it.id }.forEach { Repo.I.removeFormula(it) }
+        val id = Repo.I.addFormula("测试底涂胶", 600.0)
+        Repo.I.addFormulaItem(id, "D1NP", 26.33)
+        Repo.I.addFormulaItem(id, "CC-400", 16.67)
     }
 
     private fun state() = Repo.I.state.value
