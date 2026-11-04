@@ -20,6 +20,8 @@ data class ChatMsg(
     val toolCalls: List<AiCall> = emptyList(),
     val toolCallId: String? = null,
     val name: String? = null,
+    /** 这一轮模型的思考过程（reasoning_content / reasoning / thinking 都收） */
+    val thinking: String = "",
 )
 
 /** 模型发起的一次工具调用 */
@@ -82,6 +84,8 @@ object Ai {
         state: AppState,
         onDelta: (String) -> Unit,
         onStatus: (String) -> Unit,
+        onThink: (String) -> Unit = {},
+        tools: Boolean = true,
         maxRounds: Int = 6,
     ): List<ChatMsg> = withContext(Dispatchers.IO) {
         val out = ArrayList<ChatMsg>()
@@ -89,11 +93,32 @@ object Ai {
         var round = 0
         while (round < maxRounds) {
             round++
-            val reply = chatOnce(settings, msgs, onDelta)
+            var reply = chatOnce(settings, msgs, onDelta, onThink, tools)
+            var calls = reply.toolCalls
+            if (calls.isEmpty()) {
+                // 有些模型/中转不认 tools，会把调用当成 JSON 正文吐出来。
+                // 这里把它认出来、剥掉 JSON、当成真正的工具调用执行，避免"只输出一段 JSON 没改到配方"。
+                val (clean, fromText) = extractCalls(reply.content)
+                if (fromText.isEmpty()) {
+                    // 用户明显要改配方、但这一轮一个工具都没调：催它一次，别信"我已经改好了"
+                    if (round == 1 && wantsChange(history) && out.none { it.role == "tool" }) {
+                        main.post { onStatus("它没动配方，再催一次…") }
+                        msgs = msgs + reply + ChatMsg(
+                            role = "system",
+                            content = "你刚才没有调用任何工具，配方实际上没有变化。请现在直接调用工具修改配方，不要只在回复里描述要改什么。",
+                        )
+                        continue
+                    }
+                    out.add(reply)
+                    return@withContext out
+                }
+                main.post { onStatus("按回复里的 JSON 执行工具…") }
+                reply = reply.copy(content = clean, toolCalls = fromText)
+                calls = fromText
+            }
             out.add(reply)
-            if (reply.toolCalls.isEmpty()) return@withContext out
             msgs = msgs + reply
-            for (call in reply.toolCalls) {
+            for (call in calls) {
                 val label = AiTools.label(call.name)
                 main.post { onStatus("正在$label…") }
                 val result = try {
@@ -109,19 +134,174 @@ object Ai {
         out
     }
 
-    /** 单次请求：把 SSE 的正文增量吐给 onDelta，最后拼成一条 ChatMsg */
+    /**
+     * 从正文里捞工具调用。兼容这几种写法（中转把 tools 丢了的时候很常见）：
+     *   {"name":"add_item","arguments":{"name":"D-80","percent":6.5}}
+     *   {"tool":"add_item","args":{...}}
+     *   {"tool_calls":[{"id":"call-1","function":{"name":"add_item","arguments":"{...}"}}]}
+     * 也支持被 ```json 包起来、或夹在一段解释文字中间。
+     * @return 清理掉 JSON 之后的正文 + 认出来的调用（只保留真实存在的工具名）
+     */
+    fun extractCalls(text: String): Pair<String, List<AiCall>> {
+        if (text.isBlank()) return text to emptyList()
+        val found = ArrayList<AiCall>()
+        val spans = ArrayList<IntRange>()
+
+        fun take(blob: String, start: Int, end: Int) {
+            val calls = callsOf(blob)
+            if (calls.isEmpty()) return
+            found.addAll(calls)
+            spans.add(start until end)
+        }
+
+        // 1) 整段就是一个 JSON
+        runCatching { JSONObject(text.trim()) }.getOrNull()?.let { take(it.toString(), 0, text.length) }
+        if (found.isEmpty()) runCatching { JSONArray(text.trim()) }.getOrNull()?.let { take(it.toString(), 0, text.length) }
+
+        // 2) ```json ... ``` 代码块
+        if (found.isEmpty()) {
+            Regex("```(?:json|JSON)?\\s*([\\s\\S]*?)```").findAll(text).forEach { m ->
+                val blob = m.groupValues[1].trim()
+                if (blob.startsWith("{") || blob.startsWith("[")) take(blob, m.range.first, m.range.last + 1)
+            }
+        }
+
+        // 3) 正文里夹着的第一个/多个平衡括号 JSON
+        if (found.isEmpty()) {
+            var i = text.indexOfFirst { it == '{' || it == '[' }
+            while (i >= 0 && i < text.length) {
+                val end = balancedEnd(text, i)
+                if (end > i) {
+                    take(text.substring(i, end + 1), i, end + 1)
+                    if (found.isNotEmpty()) break
+                    i = text.indexOfFirst2('{', '[', end + 1)
+                } else break
+            }
+        }
+
+        if (found.isEmpty()) return text to emptyList()
+        val sb = StringBuilder()
+        var cursor = 0
+        spans.sortedBy { it.first }.forEach { r ->
+            if (r.first > cursor) sb.append(text, cursor, r.first)
+            cursor = maxOf(cursor, r.last + 1)
+        }
+        if (cursor < text.length) sb.append(text, cursor, text.length)
+        return sb.toString().trim() to found
+    }
+
+    private fun String.indexOfFirst2(a: Char, b: Char, from: Int): Int {
+        for (i in from until length) if (this[i] == a || this[i] == b) return i
+        return -1
+    }
+
+    private fun balancedEnd(s: String, start: Int): Int {
+        val open = s[start]
+        val close = if (open == '{') '}' else ']'
+        var depth = 0
+        var inStr = false
+        var esc = false
+        for (i in start until s.length) {
+            val c = s[i]
+            if (inStr) {
+                when {
+                    esc -> esc = false
+                    c == '\\' -> esc = true
+                    c == '"' -> inStr = false
+                }
+            } else {
+                when (c) {
+                    '"' -> inStr = true
+                    open -> depth++
+                    close -> {
+                        depth--
+                        if (depth == 0) return i
+                    }
+                }
+            }
+        }
+        return -1
+    }
+
+    /** 从一段 JSON 里认出工具调用；不认识的工具名直接丢弃 */
+    private fun callsOf(blob: String): List<AiCall> {
+        val out = ArrayList<AiCall>()
+        val root: Any? = runCatching { JSONObject(blob) }.getOrNull() ?: runCatching { JSONArray(blob) }.getOrNull()
+        fun one(o: JSONObject) {
+            val fn = o.optJSONObject("function")
+            val name = o.optString("name").ifBlank { fn?.optString("name") ?: "" }
+                .ifBlank { o.optString("tool") }.ifBlank { o.optString("tool_name") }
+            if (name.isBlank() || !AiTools.known(name)) return
+            val rawArgs = o.opt("arguments") ?: fn?.opt("arguments") ?: o.opt("args")
+                ?: o.opt("parameters") ?: o.opt("input") ?: o.opt("params")
+            val args = when (rawArgs) {
+                null -> "{}"
+                is JSONObject -> rawArgs.toString()
+                is JSONArray -> rawArgs.toString()
+                else -> rawArgs.toString().ifBlank { "{}" }
+            }
+            val id = o.optString("id").ifBlank { "text-" + out.size }
+            out.add(AiCall(id = id, name = name, args = args))
+        }
+        when (root) {
+            is JSONObject -> {
+                val arr = root.optJSONArray("tool_calls") ?: root.optJSONArray("calls")
+                if (arr != null) for (i in 0 until arr.length()) arr.optJSONObject(i)?.let { one(it) }
+                else one(root)
+            }
+            is JSONArray -> for (i in 0 until root.length()) root.optJSONObject(i)?.let { one(it) }
+            else -> {}
+        }
+        return out
+    }
+
+    /** 用户这句话是不是在要求改配方 */
+    private fun wantsChange(history: List<ChatMsg>): Boolean {
+        val last = history.lastOrNull { it.role == "user" }?.content ?: return false
+        return Regex("加|改|删|补|调|替换|去掉|增加|减少|换成|降|提|优化|调整|重做|再来").containsMatchIn(last)
+    }
+
+    /** 有的模型/中转不认 reasoning_effort，返回 400 时去掉它再试一次 */
+    private val REASONING_REJECT = Regex("reasoning_effort|reasoning|effort|thinking", RegexOption.IGNORE_CASE)
+
+    /** 单次请求：把 SSE 的正文增量吐给 onDelta、思考增量吐给 onThink，最后拼成一条 ChatMsg */
     private fun chatOnce(
         settings: AiSettings,
         history: List<ChatMsg>,
         onDelta: (String) -> Unit,
+        onThink: (String) -> Unit = {},
+        tools: Boolean = true,
+    ): ChatMsg {
+        if (settings.thinking.isNotBlank()) {
+            try {
+                return once(settings, history, onDelta, onThink, tools, withEffort = true)
+            } catch (e: AiException) {
+                val m = e.message ?: ""
+                if (!m.contains("400") || !REASONING_REJECT.containsMatchIn(m)) throw e
+                main.post { onThink("") }
+                return once(settings, history, onDelta, onThink, tools, withEffort = false)
+            }
+        }
+        return once(settings, history, onDelta, onThink, tools, withEffort = false)
+    }
+
+    private fun once(
+        settings: AiSettings,
+        history: List<ChatMsg>,
+        onDelta: (String) -> Unit,
+        onThink: (String) -> Unit,
+        tools: Boolean,
+        withEffort: Boolean,
     ): ChatMsg {
         val body = JSONObject().apply {
             put("model", settings.model)
             put("stream", true)
             put("messages", JSONArray().apply { history.forEach { put(it.toJson()) } })
-            put("tools", AiTools.defs())
-            put("tool_choice", "auto")
-            if (settings.thinking.isNotBlank()) put("reasoning_effort", settings.thinking)
+            if (tools) {
+                put("tools", AiTools.defs())
+                put("tool_choice", "auto")
+            }
+            if (withEffort) put("reasoning_effort", settings.thinking)
         }
         val conn = open("${settings.baseUrl.trimEnd('/')}/chat/completions", settings, "POST")
         conn.doOutput = true
@@ -135,6 +315,7 @@ object Ai {
         }
 
         val sb = StringBuilder()
+        val think = StringBuilder()
         val calls = LinkedHashMap<Int, Pair<String, StringBuilder>>() // index -> id, name
         val argsBuf = HashMap<Int, StringBuilder>()
 
@@ -161,9 +342,25 @@ object Ai {
                 val choice = json.optJSONArray("choices")?.optJSONObject(0) ?: continue
                 val delta = choice.optJSONObject("delta") ?: continue
                 val piece = delta.optString("content", "")
+                if (piece.isEmpty()) {
+                    // 有的网关在拒答时把话放在 refusal 里
+                    val refusal = delta.optString("refusal", "")
+                    if (refusal.isNotEmpty()) {
+                        sb.append(refusal)
+                        main.post { onDelta(refusal) }
+                    }
+                }
                 if (piece.isNotEmpty()) {
                     sb.append(piece)
                     main.post { onDelta(piece) }
+                }
+                // 思考过程：DeepSeek/智谱叫 reasoning_content，OpenAI 系叫 reasoning，个别叫 thinking
+                val reason = delta.optString("reasoning_content", "")
+                    .ifEmpty { delta.optString("reasoning", "") }
+                    .ifEmpty { delta.optString("thinking", "") }
+                if (reason.isNotEmpty()) {
+                    think.append(reason)
+                    main.post { onThink(reason) }
                 }
                 val tc = delta.optJSONArray("tool_calls")
                 if (tc != null) {
@@ -189,7 +386,7 @@ object Ai {
             if (v.first.isBlank() || v.second.toString().isBlank()) null
             else AiCall(v.first, v.second.toString(), argsBuf[idx]?.toString() ?: "{}")
         }
-        return ChatMsg(role = "assistant", content = sb.toString(), toolCalls = list)
+        return ChatMsg(role = "assistant", content = sb.toString(), toolCalls = list, thinking = think.toString())
     }
 
     private fun parseFull(text: String, onDelta: (String) -> Unit): ChatMsg {
@@ -202,6 +399,9 @@ object Ai {
             ?: throw AiException("返回里没有 message：${text.take(200)}")
         val content = msg.optString("content", "")
         if (content.isNotEmpty()) main.post { onDelta(content) }
+        val reasoning = msg.optString("reasoning_content", "")
+            .ifEmpty { msg.optString("reasoning", "") }
+            .ifEmpty { msg.optString("thinking", "") }
         val calls = ArrayList<AiCall>()
         msg.optJSONArray("tool_calls")?.let { arr ->
             for (i in 0 until arr.length()) {
@@ -216,7 +416,7 @@ object Ai {
                 )
             }
         }
-        return ChatMsg(role = "assistant", content = content, toolCalls = calls)
+        return ChatMsg(role = "assistant", content = content, toolCalls = calls, thinking = reasoning)
     }
 
     /** 一次性问答（不走工具、不流式），用于「实时点评」这类小请求 */
@@ -226,7 +426,7 @@ object Ai {
                 ChatMsg(role = "system", content = system),
                 ChatMsg(role = "user", content = user),
             )
-            chatOnce(settings.copy(thinking = ""), msgs) { }.content.trim()
+            chatOnce(settings.copy(thinking = ""), msgs, {}, {}, tools = false).content.trim()
         }
 
     // ---------------------------------------------------------------- 上下文压缩
@@ -253,7 +453,7 @@ object Ai {
                 ChatMsg(role = "user", content = transcript.take(30_000)),
             )
             val summary = try {
-                chatOnce(settings.copy(thinking = ""), ask) { }
+                chatOnce(settings.copy(thinking = ""), ask, {}, {}, tools = false)
             } catch (_: Throwable) {
                 return@withContext history
             }
@@ -295,6 +495,11 @@ object Ai {
 - 需要查资料（供应商牌号、固化条件、行业做法）就用 web_search / fetch_url，别编。
 - 算数用 calc，不要心算。
 - 每次动完配料单，用一两句话说明「加了什么、现在合计多少、还剩多少」。
+- 改配方必须真的调用工具（add_item / update_item / remove_item / fill_rest …）。
+  绝对不要把"要改的内容"写成一段 JSON 或表格丢给用户自己改——那就是没改。
+- 万一当前接口不支持工具调用，就只输出一个 JSON 对象、不要写别的字，格式：
+  {"name":"add_item","arguments":{"formulaId":"…","name":"D-80","percent":6.5}}
+  系统会自动执行这个 JSON，再回来问你结果。
 """.trimIndent()
 
     fun systemMsg(settings: AiSettings): ChatMsg {

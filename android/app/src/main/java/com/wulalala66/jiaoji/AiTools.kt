@@ -37,6 +37,15 @@ object AiTools {
         else -> name
     }
 
+    /** 工具名白名单：正文里捞到的 JSON 只认这些名字，避免瞎执行 */
+    private val NAMES = setOf(
+        "list_formulas", "get_formula", "create_formula", "set_formula_total",
+        "add_item", "update_item", "remove_item", "fill_rest", "clear_items",
+        "set_formula_meta", "get_products", "web_search", "fetch_url", "calc",
+    )
+
+    fun known(name: String): Boolean = name in NAMES
+
     // ---------------------------------------------------------------- 工具定义
 
     private fun fn(name: String, desc: String, props: JSONObject, required: List<String>): JSONObject =

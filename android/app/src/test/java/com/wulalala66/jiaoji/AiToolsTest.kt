@@ -3,6 +3,7 @@ package com.wulalala66.jiaoji
 import androidx.test.core.app.ApplicationProvider
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -135,5 +136,73 @@ class AiToolsTest {
     fun missingFormulaGivesFriendlyError() {
         val out = AiTools.run(state(), "get_formula", "{\"formulaId\":\"nope\"}")
         assertTrue(out.contains("没有这个配方"))
+    }
+
+    // ------------------------------------------------ 正文里的 JSON 当工具调用
+    @Test
+    fun extractCallsFromPlainJson() {
+        val raw = "{\"name\":\"add_item\",\"arguments\":{\"formulaId\":\"f1\",\"name\":\"D-80\",\"percent\":6.5}}"
+        val (clean, calls) = Ai.extractCalls(raw)
+        assertEquals(1, calls.size)
+        assertEquals("add_item", calls[0].name)
+        assertTrue(calls[0].args.contains("D-80"))
+        assertTrue(clean.isBlank())
+    }
+
+    @Test
+    fun extractCallsFromFenceWithProse() {
+        val raw = """
+            好的，我给它加一点 D-80：
+            ```json
+            {"name":"add_item","arguments":{"formulaId":"f1","name":"D-80","percent":6.5}}
+            ```
+        """.trimIndent()
+        val (clean, calls) = Ai.extractCalls(raw)
+        assertEquals(1, calls.size)
+        assertEquals("add_item", calls[0].name)
+        assertTrue(clean.contains("好的"))
+        assertFalse(clean.contains("add_item"))
+    }
+
+    @Test
+    fun extractCallsFromOpenAiShape() {
+        val raw = "{\"tool_calls\":[{\"id\":\"call-1\",\"function\":{\"name\":\"fill_rest\",\"arguments\":\"{\\\"formulaId\\\":\\\"f1\\\"}\"}}]}"
+        val (_, calls) = Ai.extractCalls(raw)
+        assertEquals(1, calls.size)
+        assertEquals("fill_rest", calls[0].name)
+        assertEquals("call-1", calls[0].id)
+        assertTrue(calls[0].args.contains("f1"))
+    }
+
+    @Test
+    fun extractCallsIgnoresUnknownTool() {
+        val raw = "{\"name\":\"delete_everything\",\"arguments\":{}}"
+        val (clean, calls) = Ai.extractCalls(raw)
+        assertTrue(calls.isEmpty())
+        assertEquals(raw, clean)
+    }
+
+    @Test
+    fun extractCallsHandlesNestedBraces() {
+        val raw = "加这个 {\"name\":\"add_item\",\"arguments\":{\"name\":\"A{B}\",\"percent\":1}} 好"
+        val (clean, calls) = Ai.extractCalls(raw)
+        assertEquals(1, calls.size)
+        assertTrue(calls[0].args.contains("A{B}"))
+        assertTrue(clean.contains("加这个"))
+        assertTrue(clean.contains("好"))
+    }
+
+    @Test
+    fun jsonCallReallyChangesTheFormula() {
+        val s = state()
+        val f = s.formulas.first()
+        val before = f.items.size
+        val raw = "{\"name\":\"add_item\",\"arguments\":{\"formulaId\":\"${'$'}{f.id}\",\"name\":\"新原料X\",\"percent\":3}}"
+        val (_, calls) = Ai.extractCalls(raw)
+        assertEquals(1, calls.size)
+        AiTools.run(s, calls[0].name, calls[0].args)
+        val after = Repo.I.state.value.formulaOf(f.id)!!
+        assertEquals(before + 1, after.items.size)
+        assertTrue(after.items.any { it.name == "新原料X" })
     }
 }

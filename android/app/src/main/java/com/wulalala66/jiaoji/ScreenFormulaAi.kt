@@ -200,7 +200,11 @@ fun FormulaAiScreen(
                             ToolPill("🔧 " + AiTools.label(c.name))
                         }
                     }
-                    "tool" -> Unit
+                    "tool" -> {
+                        val label = m.name?.let { AiTools.label(it) } ?: "完成"
+                        val head = m.content.lineSequence().firstOrNull().orEmpty().trim()
+                        ToolPill("✅ $label：" + if (head.length > 48) head.take(48) + "…" else head)
+                    }
                     else -> Unit
                 }
             }
