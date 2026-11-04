@@ -53,11 +53,9 @@ private fun Formula.restLabel(): String =
 /* ---------------- 配料列表 ---------------- */
 
 @Composable
-fun FormulasScreen(state: AppState, onOpen: (String) -> Unit, onBack: () -> Unit) {
+fun FormulasScreen(state: AppState, onOpen: (String) -> Unit) {
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-            IconAction(Icons.Filled.ArrowBack, Ink, "返回") { onBack() }
-            Spacer(Modifier.width(6.dp))
             Text("配料", style = MaterialTheme.typography.titleLarge, color = Ink)
             Spacer(Modifier.weight(1f))
             IconAction(Icons.Filled.Add, Brand, "新建配方") {
@@ -130,8 +128,6 @@ fun FormulaEditorScreen(state: AppState, formulaId: String, onBack: () -> Unit, 
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-            IconAction(Icons.Filled.ArrowBack, Ink, "返回") { onBack() }
-            Spacer(Modifier.width(6.dp))
             Text("配料", style = MaterialTheme.typography.titleLarge, color = Ink)
             Spacer(Modifier.weight(1f))
             Surface(

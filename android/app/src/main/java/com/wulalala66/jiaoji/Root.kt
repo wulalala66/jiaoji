@@ -78,13 +78,12 @@ fun Root() {
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
             when (val s = screen) {
-                is Screen.Density -> DensityScreen(onBack = { goTab(Screen.Formulas) })
+                is Screen.Density -> DensityScreen()
                 is Screen.Formulas -> FormulasScreen(
                     state = state,
                     onOpen = { id -> goTo(Screen.FormulaEditor(id)) },
-                    onBack = { goTab(Screen.Density) },
                 )
-                is Screen.Products -> ProductsScreen(state = state, onBack = { goTab(Screen.Settings) })
+                is Screen.Products -> ProductsScreen(state = state)
                 is Screen.Settings -> SettingsScreen(
                     state = state,
                     onOpenDiagnostics = { goTo(Screen.Diagnostics) },

@@ -3,6 +3,7 @@ package com.wulalala66.jiaoji
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -68,6 +69,8 @@ fun SettingsScreen(
     var testResult by remember { mutableStateOf("") }
     var testing by remember { mutableStateOf(false) }
     var showPrompt by remember { mutableStateOf(false) }
+    var promptGen by remember { mutableStateOf(0) }
+    val promptDefault = remember { Ai.defaultSystemPrompt() }
     var showImport by remember { mutableStateOf(false) }
     var showClear by remember { mutableStateOf(false) }
 
@@ -80,8 +83,13 @@ fun SettingsScreen(
     val modelState = rememberLocalText(ai.model, "ai-model") { v ->
         Repo.I.updateSettings { it.copy(ai = it.ai.copy(model = v.trim())) }
     }
-    val promptState = rememberLocalText(ai.systemPrompt, "ai-prompt") { v ->
-        Repo.I.updateSettings { it.copy(ai = it.ai.copy(systemPrompt = v)) }
+    // 内置默认值直接填进输入框（不是灰字提示），这样能就地改；改回默认文本或点「恢复默认」等于用内置的
+    val promptState = rememberLocalText(
+        initial = ai.systemPrompt.ifBlank { promptDefault },
+        key = "ai-prompt-$promptGen",
+    ) { v ->
+        val normalized = if (v.isBlank() || v.trim() == promptDefault.trim()) "" else v
+        Repo.I.updateSettings { it.copy(ai = it.ai.copy(systemPrompt = normalized)) }
     }
 
     fun fetchModels() {
@@ -254,26 +262,36 @@ fun SettingsScreen(
 
                 Spacer(Modifier.height(6.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { showPrompt = !showPrompt }) {
-                        Text(if (showPrompt) "收起系统提示词" else "系统提示词（高级）", color = Ink2, fontSize = 13.sp)
-                    }
+                    Text("系统提示词", color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.width(6.dp))
+                    if (ai.systemPrompt.isBlank()) Pill("内置默认", Ink3, SoftBg)
+                    else Pill("已自定义", Brand, BrandSoft)
                     Spacer(Modifier.weight(1f))
-                    if (showPrompt) {
-                        TextButton(onClick = {
-                            promptState.value = ""
-                            Repo.I.updateSettings { it.copy(ai = it.ai.copy(systemPrompt = "")) }
-                        }) { Text("恢复默认", color = Ink3, fontSize = 12.sp) }
+                    TextButton(onClick = { showPrompt = !showPrompt }) {
+                        Text(if (showPrompt) "收起" else "展开", color = Brand, fontSize = 12.sp)
                     }
                 }
                 if (showPrompt) {
+                    Spacer(Modifier.height(4.dp))
                     OutlinedTextField(
                         value = promptState.value,
                         onValueChange = { promptState.value = it },
-                        modifier = Modifier.fillMaxWidth().height(150.dp),
-                        placeholder = { Text(Ai.defaultSystemPrompt(), color = Ink3, fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth().height(190.dp),
                         textStyle = MaterialTheme.typography.bodySmall.copy(color = Ink),
                         colors = fieldColors(),
                     )
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "这段就是内置默认值，可以直接在上面改。",
+                            color = Ink3, fontSize = 11.sp, modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = {
+                            promptState.value = promptDefault
+                            promptGen++
+                            Repo.I.updateSettings { it.copy(ai = it.ai.copy(systemPrompt = "")) }
+                        }) { Text("恢复默认", color = Brand, fontSize = 12.sp) }
+                    }
                 }
 
                 Spacer(Modifier.height(8.dp))
@@ -288,12 +306,11 @@ fun SettingsScreen(
                         onClick = onOpenDiagnostics,
                         shape = RoundedCornerShape(12.dp),
                         color = SoftBg,
+                        modifier = Modifier.weight(0.42f),
                     ) {
-                        Text(
-                            "诊断",
-                            color = Ink2, fontSize = 14.sp,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                        )
+                        Box(Modifier.height(52.dp), contentAlignment = Alignment.Center) {
+                            Text("诊断", color = Ink2, fontSize = 14.sp)
+                        }
                     }
                 }
                 if (testResult.isNotBlank()) {

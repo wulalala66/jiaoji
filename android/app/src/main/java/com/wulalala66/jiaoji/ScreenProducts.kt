@@ -18,7 +18,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -40,7 +39,7 @@ import androidx.compose.ui.unit.dp
  * 放进烘箱时也能直接挑，省得每次问车间。
  */
 @Composable
-fun ProductsScreen(state: AppState, onBack: () -> Unit) {
+fun ProductsScreen(state: AppState) {
     var q by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<Product?>(null) }
     var creating by remember { mutableStateOf(false) }
@@ -53,8 +52,6 @@ fun ProductsScreen(state: AppState, onBack: () -> Unit) {
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-            IconAction(Icons.Filled.ArrowBack, Ink, "返回") { onBack() }
-            Spacer(Modifier.width(6.dp))
             Text("产品条件表", style = MaterialTheme.typography.titleLarge, color = Ink)
             Spacer(Modifier.weight(1f))
             IconAction(Icons.Filled.Add, Brand, "新增产品") { creating = true }

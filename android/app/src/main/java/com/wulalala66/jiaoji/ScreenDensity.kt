@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,7 +42,7 @@ private fun fmt2(v: Double): String = String.format(Locale.US, "%.2f", v)
  * 直接出 比重 / 固体成分 / 发泡率 三个结果。
  */
 @Composable
-fun DensityScreen(onBack: () -> Unit) {
+fun DensityScreen() {
     val ctx = LocalContext.current
     var m1 by remember { mutableStateOf("") }
     var m2 by remember { mutableStateOf("") }
@@ -58,8 +57,6 @@ fun DensityScreen(onBack: () -> Unit) {
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
-            IconAction(Icons.Filled.ArrowBack, Ink, "返回") { onBack() }
-            Spacer(Modifier.width(6.dp))
             Text("比重计算器", style = MaterialTheme.typography.titleLarge, color = Ink)
             Spacer(Modifier.weight(1f))
             IconAction(Icons.Filled.Share, Ink2, "分享结果") {
@@ -108,19 +105,8 @@ fun DensityScreen(onBack: () -> Unit) {
 
             item {
                 AppCard(color = BrandSoft, borderColor = BrandSoft) {
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Column(Modifier.weight(1f)) {
-                            Text("比重", style = MaterialTheme.typography.labelMedium, color = Brand)
-                            Text(
-                                DensityCalc.text(r.specific, 4),
-                                style = MaterialTheme.typography.displaySmall,
-                                color = Ink,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(10.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ResultBox("比重", DensityCalc.text(r.specific, 4), Modifier.weight(1f))
                         ResultBox("固体成分", if (hasSolid) DensityCalc.text(r.solid, 3) + " %" else "—", Modifier.weight(1f))
                         ResultBox("发泡率", if (hasSolid) DensityCalc.text(r.foam, 3) + " %" else "—", Modifier.weight(1f))
                     }
@@ -173,10 +159,16 @@ private fun ResultBox(label: String, value: String, modifier: Modifier = Modifie
         modifier = modifier
             .clip(MaterialTheme.shapes.small)
             .background(CardBg)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .padding(horizontal = 10.dp, vertical = 10.dp)
     ) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = Ink3)
-        Spacer(Modifier.height(2.dp))
-        Text(value, style = MaterialTheme.typography.titleLarge, color = Ink)
+        Text(label, style = MaterialTheme.typography.labelSmall, color = Ink3, maxLines = 1)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            value,
+            style = MaterialTheme.typography.titleLarge,
+            color = if (value == "—") Ink3 else Ink,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
     }
 }
