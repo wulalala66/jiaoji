@@ -4,6 +4,11 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -340,13 +345,13 @@ private fun ReasoningCard(text: String, live: Boolean, ms: Long) {
 
 @Composable
 private fun rememberPulse(): Float {
-    val transition = androidx.compose.animation.core.rememberInfiniteTransition(label = "pulse")
+    val transition = rememberInfiniteTransition(label = "pulse")
     val v by transition.animateFloat(
         initialValue = 0.45f,
         targetValue = 1f,
-        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
-            animation = androidx.compose.animation.core.tween(700),
-            repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+        animationSpec = infiniteRepeatable(
+            animation = tween(700),
+            repeatMode = RepeatMode.Reverse,
         ),
         label = "pulseValue",
     )
