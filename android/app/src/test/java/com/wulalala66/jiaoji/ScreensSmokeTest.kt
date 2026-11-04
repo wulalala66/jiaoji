@@ -41,7 +41,7 @@ class ScreensSmokeTest {
 
     @Test(timeout = 120_000)
     fun formulasList() {
-        smoke { s -> FormulasScreen(s, onOpen = {}, onBack = {}) }
+        smoke { s -> FormulasScreen(s, onOpen = {}) }
     }
 
     @Test(timeout = 120_000)
@@ -58,12 +58,12 @@ class ScreensSmokeTest {
 
     @Test(timeout = 120_000)
     fun density() {
-        smoke { DensityScreen(onBack = {}) }
+        smoke { DensityScreen() }
     }
 
     @Test(timeout = 120_000)
     fun products() {
-        smoke { s -> ProductsScreen(s, onBack = {}) }
+        smoke { s -> ProductsScreen(s) }
     }
 
     @Test(timeout = 120_000)
