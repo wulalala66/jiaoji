@@ -8,11 +8,11 @@ val appVerCode = (project.findProperty("verCode") as String?)?.toIntOrNull() ?: 
 val appVerName = (project.findProperty("verName") as String?) ?: "2.0.0"
 
 android {
-    namespace = "com.wulalala66.jiaoji"
+    namespace = "com.gluelab.jiaoji"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.wulalala66.jiaoji"
+        applicationId = "com.gluelab.jiaoji"
         minSdk = 24
         targetSdk = 34
         versionCode = appVerCode

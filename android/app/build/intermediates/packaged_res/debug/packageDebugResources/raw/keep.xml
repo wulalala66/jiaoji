@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!--
-  R8 会把 R.raw.ring / R.raw.chime 这种常量内联成数字，资源压缩器看不到引用，
-  会把内置音效当成「没人用」删掉 —— 结果就是取不到系统闹铃的机型彻底不响。
-  这里显式保留。
--->
-<resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@raw/ring,@raw/chime" />

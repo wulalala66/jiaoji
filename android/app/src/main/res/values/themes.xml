@@ -7,11 +7,4 @@
         <item name="android:windowLightStatusBar">true</item>
     </style>
 
-    <style name="Theme.JiaoJi.Ring" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@color/app_bg</item>
-        <item name="android:statusBarColor">@color/app_bg</item>
-        <item name="android:navigationBarColor">@color/app_bg</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowShowWallpaper">false</item>
-    </style>
 </resources>

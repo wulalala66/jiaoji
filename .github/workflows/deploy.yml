@@ -173,25 +173,6 @@ jobs:
             --out /tmp/jiaoji-signed.apk /tmp/aligned.apk
           "$BT/apksigner" verify --print-certs /tmp/jiaoji-signed.apk
 
-      - name: Assert bundled ringtone survived shrinking
-        run: |
-          set -e
-          APK=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
-          echo "check $APK"
-          AAPT2=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
-          echo "aapt2: $AAPT2"
-          "$AAPT2" dump resources "$APK" > /tmp/res.txt || true
-          # 资源压缩会把 res/raw/ring.ogg 改名成 res/xx.ogg，所以按资源表查而不是按路径查
-          for name in raw/ring raw/chime; do
-            if grep -q "$name" /tmp/res.txt; then
-              echo "内置音效 $name 已打进 APK ✓"
-            else
-              echo "::error::$name 被资源压缩删掉了，取不到系统闹铃的机型会彻底不响"
-              grep -i "raw" /tmp/res.txt | head -5 || true
-              exit 1
-            fi
-          done
-
       - name: Collect APK
         run: |
           set -e
@@ -272,7 +253,12 @@ jobs:
             --notes "**安装包**：下载 \`jiaoji-${{ steps.tag.outputs.new }}.apk\` 直接装到安卓手机（Android 7.0+）。
 
           附件里还有网页版（tar.gz/zip）、ed25519 签名（.sig）与校验和。
-          网页签名验证：\`ssh-keygen -Y verify -f allowed_signers -I jiaoji-build -n jiaoji -s jiaoji-dist.tar.gz.sig < jiaoji-dist.tar.gz\`"
+          网页签名验证：\`ssh-keygen -Y verify -f allowed_signers -I jiaoji-build -n jiaoji -s jiaoji-dist.tar.gz.sig < jiaoji-dist.tar.gz\`
+
+          ---
+
+          从 2.x 升级：包名换成了 \`com.gluelab.jiaoji\`，安卓会当成另一个 App 装。
+          先在旧版「设置 → 数据 → 导出备份」，装完新版再导入即可。"
 
   deploy-pages:
     needs: web

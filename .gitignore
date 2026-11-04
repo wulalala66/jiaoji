@@ -4,3 +4,15 @@ signing/
 serve.log
 *.log
 .DS_Store
+
+# 构建产物：CI 每次都会重新生成，不进仓库
+android/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+android/.kotlin/
+*.apk
+*.aab
+*.jks
+*.keystore
+*.p12
