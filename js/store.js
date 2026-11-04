@@ -1,102 +1,223 @@
 /* ============================================================
-   胶记 · store (localStorage state + persistence)
+   胶记 · 状态与存储
+   存储格式与安卓版完全一致（同一个 JSON），两边备份可以互导。
    ============================================================ */
-import { uid, dateKey, at } from "./utils.js";
+
+import { num, uid } from "./utils.js";
 
 const KEY = "jiaoji.v1";
+const LEGACY_BACKUP_KEY = "jiaoji.legacy-backup";
 
-export const DEFAULT_TYPES = [
-  {
-    id: "dtj",
-    name: "底涂胶",
-    bakes: [
-      { temp: 140, minutes: 20 },
-      { temp: 140, minutes: 30 },
-    ],
-    tests: [
-      { id: "t_dtj_yl", name: "压流", unit: "mm", min: "", max: "" },
-      { id: "t_dtj_xz", name: "旋转粘度", unit: "mPa·s", min: "", max: "" },
-      { id: "t_dtj_bh", name: "宾汉粘度", unit: "Pa·s", min: "", max: "" },
-      { id: "t_dtj_jq", name: "剪切强度", unit: "MPa", min: "", max: "" },
-      { id: "t_dtj_yd", name: "硬度", unit: "Shore A", min: "", max: "" },
-    ],
-  },
-  {
-    id: "hfj",
-    name: "焊缝胶",
-    bakes: [
-      { temp: 140, minutes: 30 },
-      { temp: 160, minutes: 20 },
-    ],
-    tests: [
-      { id: "t_hfj_yl", name: "压流", unit: "mm", min: "", max: "" },
-      { id: "t_hfj_xz", name: "旋转粘度", unit: "mPa·s", min: "", max: "" },
-      { id: "t_hfj_jq", name: "剪切强度", unit: "MPa", min: "", max: "" },
-      { id: "t_hfj_yd", name: "硬度", unit: "Shore A", min: "", max: "" },
-      { id: "t_hfj_gl", name: "固含量", unit: "%", min: "", max: "" },
-    ],
-  },
-  {
-    id: "other",
-    name: "其他",
-    bakes: [],
-    tests: [],
-  },
-];
+// ---------------------------------------------------------------- 默认数据
 
-function defaults() {
-  return {
-    version: 1,
-    settings: {
-      preAlertMinutes: 5,
-      sound: true,
-      vibrate: true,
-      keepAwake: true,
-      notifyAsked: false,
-      customerOrder: [],
+export function defaultProducts() {
+  return [
+    ["p01", "中亮/中亮VF3", [[150, 25]]],
+    ["p02", "焊缝胶", [[140, 30]]],
+    ["p03", "折边胶/结构胶", [[180, 20]]],
+    ["p04", "奥博/圣歌瑞", [[150, 25]]],
+    ["p05", "润东铭", [[160, 20]]],
+    ["p06", "润金泽/六安", [[150, 30], [170, 20]]],
+    ["p07", "柳州万安", [[160, 20]]],
+    ["p08", "安徽万安", [[170, 20], [210, 20]]],
+    ["p09", "江阴铝板底涂", [[155, 30]]],
+    ["p10", "五菱灰色底涂", [[140, 30]]],
+    ["p11", "方达发泡底涂", [[160, 20]]],
+    ["p12", "珂亦铝板不发泡", [[160, 25], [170, 25]]],
+    ["p13", "太仓发泡底涂", [[160, 20]]],
+    ["p14", "安徽众源", [[160, 25]]],
+    ["p15", "宁波惠轩", [[170, 20]]],
+    ["p16", "太仓格盛恩", [[170, 20]]],
+  ].map(([id, name, bakes]) => ({
+    id,
+    name,
+    bakes: bakes.map(([temp, minutes]) => ({ temp, minutes })),
+  }));
+}
+
+export function defaultFormulas() {
+  return [
+    {
+      id: "f_demo",
+      name: "底涂胶 A 料（示例）",
+      totalG: 600,
+      note: "",
+      purpose: "示例：可以改，也可以直接删",
+      cure: "140*30",
+      items: [
+        { id: "fi_demo1", name: "D1NP", percent: 26.33 },
+        { id: "fi_demo2", name: "碳酸钙", percent: 18 },
+        { id: "fi_demo3", name: "增塑剂", percent: 12.5 },
+        { id: "fi_demo4", name: "炭黑", percent: 3.17 },
+        { id: "fi_demo5", name: "填料 A", percent: 40 },
+      ],
     },
-    types: structuredClone(DEFAULT_TYPES),
-    customers: ["安徽万安"],
-    sampling: [], // {id, customer, typeId, dueAt(ms), note, preAlertMinutes|null, status, sampleId}
-    samples: [], // {id, customer, typeId, batchNo, sampledAt, note, status, tests:[{id,name,unit,min,max,value,note,skipped}]}
-    bakes: [], // {id, oven, sampleId, label, tempC, minutes, startAt, endAt, status, doneAt, sound}
-    seq: {}, // batch counters per day-key
+  ];
+}
+
+export function defaultAi() {
+  return {
+    baseUrl: "",
+    apiKey: "",
+    model: "",
+    thinking: "",
+    compress: true,
+    liveComment: true,
+    systemPrompt: "",
   };
 }
 
-let state = load();
+export function defaultState() {
+  return {
+    settings: { ai: defaultAi() },
+    products: defaultProducts(),
+    formulas: defaultFormulas(),
+  };
+}
+
+// ---------------------------------------------------------------- 编解码
+
+const str = (v, fallback = "") => (typeof v === "string" ? v : fallback);
+const positive = (v, fallback) => {
+  const n = num(v);
+  return n !== null && n > 0 ? n : fallback;
+};
+
+/** 把外部 JSON（本机旧数据 / 安卓备份 / 用户导入的文件）整理成内部结构 */
+export function decode(raw) {
+  const src = typeof raw === "string" ? JSON.parse(raw) : raw;
+  if (!src || typeof src !== "object" || Array.isArray(src)) throw new Error("不是有效的备份文件");
+
+  const aiSrc = src?.settings?.ai ?? {};
+  const state = {
+    settings: {
+      ai: {
+        baseUrl: str(aiSrc.baseUrl).trim(),
+        apiKey: str(aiSrc.apiKey).trim(),
+        model: str(aiSrc.model).trim(),
+        thinking: ["", "low", "medium", "high"].includes(aiSrc.thinking) ? aiSrc.thinking : "",
+        compress: aiSrc.compress !== false,
+        liveComment: aiSrc.liveComment !== false,
+        systemPrompt: str(aiSrc.systemPrompt),
+      },
+    },
+    products: [],
+    formulas: [],
+  };
+
+  if (Array.isArray(src.products)) {
+    for (const p of src.products) {
+      if (!p || typeof p !== "object") continue;
+      const name = str(p.name).trim();
+      if (!name) continue;
+      const bakes = [];
+      if (Array.isArray(p.bakes)) {
+        for (const b of p.bakes) {
+          const temp = num(b?.temp ?? b?.tempC);
+          const minutes = num(b?.minutes);
+          if (temp > 0 && minutes > 0) bakes.push({ temp: Math.round(temp), minutes: Math.round(minutes) });
+        }
+      }
+      state.products.push({ id: str(p.id) || "p_" + uid(), name, bakes });
+    }
+  }
+  if (!state.products.length) state.products = defaultProducts();
+
+  if (Array.isArray(src.formulas)) {
+    for (const f of src.formulas) {
+      if (!f || typeof f !== "object") continue;
+      const items = [];
+      if (Array.isArray(f.items)) {
+        for (const it of f.items) {
+          if (!it || typeof it !== "object") continue;
+          items.push({
+            id: str(it.id) || "fi_" + uid(),
+            name: str(it.name),
+            percent: Math.min(100, Math.max(0, num(it.percent) ?? 0)),
+          });
+        }
+      }
+      state.formulas.push({
+        id: str(f.id) || "f_" + uid(),
+        name: str(f.name) || "未命名配方",
+        totalG: positive(f.totalG, 600),
+        note: str(f.note),
+        purpose: str(f.purpose),
+        cure: str(f.cure),
+        items,
+      });
+    }
+  }
+
+  return state;
+}
+
+export function encode(state) {
+  return JSON.stringify({
+    v: 1,
+    settings: {
+      ai: {
+        baseUrl: state.settings.ai.baseUrl,
+        apiKey: state.settings.ai.apiKey,
+        model: state.settings.ai.model,
+        thinking: state.settings.ai.thinking,
+        compress: state.settings.ai.compress,
+        liveComment: state.settings.ai.liveComment,
+        systemPrompt: state.settings.ai.systemPrompt,
+      },
+    },
+    products: state.products.map((p) => ({
+      id: p.id,
+      name: p.name,
+      bakes: p.bakes.map((b) => ({ temp: b.temp, minutes: b.minutes })),
+    })),
+    formulas: state.formulas.map((f) => ({
+      id: f.id,
+      name: f.name,
+      totalG: f.totalG,
+      note: f.note,
+      ...(f.purpose ? { purpose: f.purpose } : {}),
+      ...(f.cure ? { cure: f.cure } : {}),
+      items: f.items.map((it) => ({ id: it.id, name: it.name, percent: it.percent })),
+    })),
+  });
+}
+
+// ---------------------------------------------------------------- 状态容器
+
+let state = defaultState();
 const listeners = new Set();
 
-function load() {
+function readStored() {
+  let raw = null;
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return defaults();
-    const data = JSON.parse(raw);
-    const d = defaults();
-    // shallow merge with defaults for forward compatibility
-    return {
-      ...d,
-      ...data,
-      settings: { ...d.settings, ...(data.settings || {}) },
-      types: Array.isArray(data.types) && data.types.length ? data.types : d.types,
-      customers: Array.isArray(data.customers) ? data.customers : d.customers,
-      sampling: Array.isArray(data.sampling) ? data.sampling : [],
-      samples: Array.isArray(data.samples) ? data.samples : [],
-      bakes: Array.isArray(data.bakes) ? data.bakes : [],
-      seq: data.seq && typeof data.seq === "object" ? data.seq : {},
-    };
-  } catch (err) {
-    console.warn("store load failed, using defaults", err);
-    return defaults();
+    raw = localStorage.getItem(KEY);
+  } catch {
+    return { state: defaultState(), note: "浏览器禁用了本地存储，这次的数据关掉页面就没了" };
+  }
+  if (!raw) return { state: defaultState(), note: "" };
+
+  try {
+    const parsed = JSON.parse(raw);
+    // 老版本（带取样/烘烤/记录）的数据：留一份原始备份，别直接丢
+    if (parsed && (Array.isArray(parsed.samples) || Array.isArray(parsed.sampling))) {
+      try {
+        localStorage.setItem(LEGACY_BACKUP_KEY, raw);
+      } catch {
+        /* 存不下就算了，不影响主流程 */
+      }
+    }
+    return { state: decode(parsed), note: "" };
+  } catch (e) {
+    return { state: defaultState(), note: "本地数据读不出来，已用默认数据启动（原数据没删）" };
   }
 }
 
-function persist() {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(state));
-  } catch (err) {
-    console.error("store persist failed", err);
-  }
+export function initStore() {
+  const r = readStored();
+  state = r.state;
+  save();
+  return r.note;
 }
 
 export function getState() {
@@ -108,454 +229,210 @@ export function subscribe(fn) {
   return () => listeners.delete(fn);
 }
 
-let notifyQueued = false;
-export function notify() {
-  persist();
-  if (notifyQueued) return;
-  notifyQueued = true;
-  queueMicrotask(() => {
-    notifyQueued = false;
-    listeners.forEach((fn) => {
-      try {
-        fn(state);
-      } catch (err) {
-        console.error(err);
-      }
-    });
-  });
+function save() {
+  try {
+    localStorage.setItem(KEY, encode(state));
+  } catch (e) {
+    console.warn("保存失败", e);
+  }
 }
 
+/** 所有写操作都走这里：改完立刻存盘 + 通知界面 */
 export function mutate(fn) {
-  fn(state);
-  notify();
-}
-
-/* ---------- selectors ---------- */
-
-export function getType(id) {
-  return state.types.find((t) => t.id === id) || null;
-}
-
-export function typeName(id) {
-  return getType(id)?.name || "未知类型";
-}
-
-export function getSample(id) {
-  return state.samples.find((s) => s.id === id) || null;
-}
-
-export function getBake(id) {
-  return state.bakes.find((b) => b.id === id) || null;
-}
-
-export function activeSampleOfBake(bake) {
-  return bake?.sampleId ? getSample(bake.sampleId) : null;
-}
-
-export function customers() {
-  const fromData = [...state.customers];
-  for (const t of state.sampling) if (t.customer && !fromData.includes(t.customer)) fromData.push(t.customer);
-  for (const s of state.samples) if (s.customer && !fromData.includes(s.customer)) fromData.push(s.customer);
-  const order = state.settings.customerOrder || [];
-  fromData.sort((a, b) => {
-    const ia = order.indexOf(a);
-    const ib = order.indexOf(b);
-    if (ia === -1 && ib === -1) return a.localeCompare(b, "zh");
-    if (ia === -1) return 1;
-    if (ib === -1) return -1;
-    return ia - ib;
-  });
-  return fromData;
-}
-
-export function activeBakes() {
-  return state.bakes.filter((b) => b.status === "running" || b.status === "due");
-}
-
-export function runningBakes(oven) {
-  return state.bakes.filter(
-    (b) => (oven == null || b.oven === oven) && (b.status === "running" || b.status === "due")
-  );
-}
-
-export function todaySampling() {
-  const today = dateKey();
-  return state.sampling
-    .filter((t) => dateKey(new Date(t.dueAt)) === today)
-    .sort((a, b) => a.dueAt - b.dueAt);
-}
-
-export function pendingToday() {
-  return todaySampling().filter((t) => t.status === "pending");
-}
-
-export function activeSamples() {
-  return state.samples.filter((s) => s.status === "active");
-}
-
-export function todaySamples() {
-  const today = dateKey();
-  return state.samples
-    .filter((s) => dateKey(new Date(s.sampledAt)) === today)
-    .sort((a, b) => b.sampledAt - a.sampledAt);
-}
-
-/** next pre-alert/due time across bakes + sampling, for tab hints */
-export function nextAlarmTs() {
-  const now = Date.now();
-  let next = Infinity;
-  for (const b of state.bakes) {
-    if (b.status !== "running" && b.status !== "due") continue;
-    const pre = now + ((b.preAlert ?? state.settings.preAlertMinutes ?? 5) * 60 - 60) * 1000;
-    if (b.status === "running" && b.endAt > now) next = Math.min(next, b.endAt);
-    if (b.status === "running" && pre > now && pre < b.endAt) next = Math.min(next, pre);
-  }
-  for (const t of state.sampling) {
-    if (t.status !== "pending") continue;
-    const pre = t.preAlertMinutes == null ? state.settings.preAlertMinutes : t.preAlertMinutes;
-    const preTs = t.dueAt - pre * 60000;
-    if (preTs > now) next = Math.min(next, preTs);
-    if (t.dueAt > now) next = Math.min(next, t.dueAt);
-  }
-  return next;
-}
-
-/* ---------- batch number ---------- */
-
-export function nextBatchNo(now = new Date()) {
-  const key = `${dateKey(now)}T${now.getHours()}`; // per-day per-shift-hour counter is overkill; per day
-  const dayKey = dateKey(now);
-  const seq = (state.seq[dayKey] || 0) + 1;
-  mutate((s) => {
-    s.seq[dayKey] = seq;
-    // keep only last 60 days
-    const keys = Object.keys(s.seq).sort();
-    while (keys.length > 60) delete s.seq[keys.shift()];
-  });
-  return `${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}-${String(seq).padStart(2, "0")}`;
-}
-
-/* ---------- mutations ---------- */
-
-export function addSampling({ customer, typeId, dueAt, note = "", preAlertMinutes = null }) {
-  const task = {
-    id: uid(),
-    customer,
-    typeId,
-    dueAt,
-    note,
-    preAlertMinutes,
-    status: "pending",
-    sampleId: null,
-  };
-  mutate((s) => s.sampling.push(task));
-  return task;
-}
-
-export function updateSampling(id, patch) {
-  mutate((s) => {
-    const t = s.sampling.find((x) => x.id === id);
-    if (t) Object.assign(t, patch);
-  });
-}
-
-export function removeSampling(id) {
-  mutate((s) => {
-    s.sampling = s.sampling.filter((x) => x.id !== id);
-  });
-}
-
-export function createSampleFromTask(taskId, { batchNo, note = "" } = {}) {
-  const task = state.sampling.find((t) => t.id === taskId);
-  if (!task) return null;
-  const type = getType(task.typeId);
-  const sample = {
-    id: uid(),
-    customer: task.customer,
-    typeId: task.typeId,
-    batchNo: batchNo || nextBatchNo(),
-    sampledAt: Date.now(),
-    note: note || task.note || "",
-    status: "active",
-    taskId: task.id,
-    tests: (type?.tests || []).map((t) => ({ id: t.id || "t_" + uid(), ...t, value: "", note: "", skipped: false })),
-  };
-  mutate((s) => {
-    s.samples.push(sample);
-    const t = s.sampling.find((x) => x.id === taskId);
-    if (t) {
-      t.status = "done";
-      t.sampleId = sample.id;
+  const next = decode(encode(state));
+  fn(next);
+  state = next;
+  save();
+  for (const l of listeners) {
+    try {
+      l(state);
+    } catch (e) {
+      console.error(e);
     }
-  });
-  return sample;
+  }
+  return state;
 }
 
-export function createStandaloneSample({ customer, typeId, batchNo, note = "" }) {
-  const type = getType(typeId);
-  const sample = {
-    id: uid(),
-    customer,
-    typeId,
-    batchNo: batchNo || nextBatchNo(),
-    sampledAt: Date.now(),
-    note,
-    status: "active",
-    taskId: null,
-    tests: (type?.tests || []).map((t) => ({ id: t.id || "t_" + uid(), ...t, value: "", note: "", skipped: false })),
-  };
-  mutate((s) => s.samples.push(sample));
-  return sample;
+export function replaceState(next) {
+  state = next;
+  save();
+  for (const l of listeners) l(state);
 }
 
-export function updateSample(id, patch) {
-  mutate((s) => {
-    const sample = s.samples.find((x) => x.id === id);
-    if (sample) Object.assign(sample, patch);
-  });
+// ---------------------------------------------------------------- 派生计算
+
+export function formulaOf(id) {
+  return state.formulas.find((f) => f.id === id) || null;
 }
 
-export function setTestValue(sampleId, testId, patch) {
-  mutate((s) => {
-    const sample = s.samples.find((x) => x.id === sampleId);
-    const t = sample?.tests.find((x) => x.id === testId);
-    if (t) Object.assign(t, patch);
-  });
+export function sumPercent(f) {
+  return f.items.reduce((s, it) => s + (num(it.percent) ?? 0), 0);
 }
 
-export function addTestToSample(sampleId, { name, unit = "", min = "", max = "" }) {
-  const test = { id: "t_" + uid(), name, unit, min, max, value: "", note: "", skipped: false };
-  mutate((s) => {
-    const sample = s.samples.find((x) => x.id === sampleId);
-    if (sample) sample.tests.push(test);
-  });
-  return test;
+export function gramsOf(f, item) {
+  return ((num(item.percent) ?? 0) * (f.totalG || 0)) / 100;
 }
 
-export function removeTestFromSample(sampleId, testId) {
-  mutate((s) => {
-    const sample = s.samples.find((x) => x.id === sampleId);
-    if (sample) sample.tests = sample.tests.filter((x) => x.id !== testId);
-  });
+export function sumGrams(f) {
+  return f.items.reduce((s, it) => s + gramsOf(f, it), 0);
 }
 
-export function updateTypeTest(typeId, testId, patch) {
-  mutate((s) => {
-    const type = s.types.find((x) => x.id === typeId);
-    const t = type?.tests.find((x) => x.id === testId);
-    if (t) Object.assign(t, patch);
-  });
+export function restPercent(f) {
+  return 100 - sumPercent(f);
 }
 
-export function addTypeTest(typeId, { name, unit = "", min = "", max = "" }) {
-  const test = { id: "t_" + uid(), name, unit, min, max };
-  mutate((s) => {
-    const type = s.types.find((x) => x.id === typeId);
-    if (type) type.tests.push(test);
-  });
-  return test;
+export function restGrams(f) {
+  return (f.totalG || 0) - sumGrams(f);
 }
 
-export function removeTypeTest(typeId, testId) {
-  mutate((s) => {
-    const type = s.types.find((x) => x.id === typeId);
-    if (type) type.tests = type.tests.filter((x) => x.id !== testId);
-  });
+export function isComplete(f) {
+  return Math.abs(restPercent(f)) < 0.05;
 }
 
-export function completeSample(id) {
-  mutate((s) => {
-    const sample = s.samples.find((x) => x.id === id);
-    if (sample) sample.status = "done";
-  });
-}
+// ---------------------------------------------------------------- 写操作
 
-export function reopenSample(id) {
-  mutate((s) => {
-    const sample = s.samples.find((x) => x.id === id);
-    if (sample) sample.status = "active";
-  });
-}
+export const actions = {
+  addFormula(name = "新配方", totalG = 600) {
+    const id = "f_" + uid();
+    mutate((s) => {
+      s.formulas.push({
+        id,
+        name: name || `配方 ${s.formulas.length + 1}`,
+        totalG: totalG > 0 ? totalG : 600,
+        note: "",
+        purpose: "",
+        cure: "",
+        items: [],
+      });
+    });
+    return id;
+  },
 
-export function deleteSample(id) {
-  mutate((s) => {
-    s.samples = s.samples.filter((x) => x.id !== id);
-    s.bakes = s.bakes.filter((b) => b.sampleId !== id);
-    s.sampling.forEach((t) => {
-      if (t.sampleId === id) {
-        t.sampleId = null;
-        t.status = "pending";
+  updateFormula(id, patch) {
+    mutate((s) => {
+      const f = s.formulas.find((x) => x.id === id);
+      if (f) Object.assign(f, patch);
+    });
+  },
+
+  removeFormula(id) {
+    mutate((s) => {
+      s.formulas = s.formulas.filter((f) => f.id !== id);
+    });
+  },
+
+  duplicateFormula(id) {
+    const newId = "f_" + uid();
+    mutate((s) => {
+      const src = s.formulas.find((f) => f.id === id);
+      if (!src) return;
+      s.formulas.push({
+        ...src,
+        id: newId,
+        name: src.name + " 副本",
+        items: src.items.map((it) => ({ ...it, id: "fi_" + uid() })),
+      });
+    });
+    return newId;
+  },
+
+  addItem(formulaId, name = "", percent = 0) {
+    const id = "fi_" + uid();
+    mutate((s) => {
+      const f = s.formulas.find((x) => x.id === formulaId);
+      if (f) f.items.push({ id, name, percent });
+    });
+    return id;
+  },
+
+  updateItem(formulaId, itemId, patch) {
+    mutate((s) => {
+      const f = s.formulas.find((x) => x.id === formulaId);
+      const it = f?.items.find((x) => x.id === itemId);
+      if (!it) return;
+      if (typeof patch.name === "string") it.name = patch.name;
+      if (patch.percent !== undefined && patch.percent !== null) {
+        it.percent = Math.min(100, Math.max(0, num(patch.percent) ?? 0));
       }
     });
-  });
-}
+  },
 
-/* ---------- bakes ---------- */
-
-export function addBake({ oven, sampleId = null, label, tempC, minutes, startAt, sound = true }) {
-  const bake = {
-    id: uid(),
-    oven, // 'door' | 'window'
-    sampleId,
-    label,
-    tempC,
-    minutes,
-    startAt,
-    endAt: startAt + minutes * 60000,
-    status: "running",
-    doneAt: null,
-    sound,
-    preAlert: null,
-  };
-  mutate((s) => s.bakes.push(bake));
-  return bake;
-}
-
-export function updateBake(id, patch) {
-  mutate((s) => {
-    const b = s.bakes.find((x) => x.id === id);
-    if (!b) return;
-    Object.assign(b, patch);
-    if (patch.startAt != null || patch.minutes != null) {
-      b.endAt = b.startAt + b.minutes * 60000;
-      if (b.status === "due" && b.endAt > Date.now()) b.status = "running";
-    }
-  });
-}
-
-export function markBakeDone(id) {
-  mutate((s) => {
-    const b = s.bakes.find((x) => x.id === id);
-    if (b) {
-      b.status = "done";
-      b.doneAt = Date.now();
-    }
-  });
-}
-
-/** add minutes to a running bake ("加5分") */
-export function extendBake(id, minutes = 5) {
-  mutate((s) => {
-    const b = s.bakes.find((x) => x.id === id);
-    if (!b) return;
-    b.minutes = (b.minutes || 0) + minutes;
-    b.endAt = b.endAt + minutes * 60000;
-    if (b.status === "due" && b.endAt > Date.now()) b.status = "running";
-  });
-}
-
-export function removeBake(id) {
-  mutate((s) => {
-    s.bakes = s.bakes.filter((x) => x.id !== id);
-  });
-}
-
-/* ---------- customers & types ---------- */
-
-export function addCustomer(name) {
-  const n = name.trim();
-  if (!n) return;
-  mutate((s) => {
-    if (!s.customers.includes(n)) s.customers.push(n);
-  });
-}
-
-export function renameCustomer(oldName, newName) {
-  const n = newName.trim();
-  if (!n || n === oldName) return;
-  mutate((s) => {
-    const swap = (arr) => arr.forEach((x) => {
-      if (x.customer === oldName) x.customer = n;
+  removeItem(formulaId, itemId) {
+    mutate((s) => {
+      const f = s.formulas.find((x) => x.id === formulaId);
+      if (f) f.items = f.items.filter((x) => x.id !== itemId);
     });
-    swap(s.sampling);
-    swap(s.samples);
-    s.customers = s.customers.map((c) => (c === oldName ? n : c));
-  });
-}
+  },
 
-export function deleteCustomer(name) {
-  mutate((s) => {
-    s.customers = s.customers.filter((c) => c !== name);
-  });
-}
+  fillRest(formulaId, itemId) {
+    mutate((s) => {
+      const f = s.formulas.find((x) => x.id === formulaId);
+      if (!f) return;
+      const others = f.items.filter((x) => x.id !== itemId).reduce((a, b) => a + b.percent, 0);
+      const it = f.items.find((x) => x.id === itemId);
+      if (it) it.percent = Math.max(0, Math.round((100 - others) * 100) / 100);
+    });
+  },
 
-export function addType({ name, bakes = [], tests = [] }) {
-  const type = { id: "tp_" + uid(), name: name.trim(), bakes, tests };
-  mutate((s) => s.types.push(type));
-  return type;
-}
+  addProduct(name, bakes = []) {
+    const clean = name.trim();
+    if (!clean) return null;
+    if (state.products.some((p) => p.name === clean)) return null;
+    const id = "p_" + uid();
+    mutate((s) => {
+      s.products.push({ id, name: clean, bakes });
+    });
+    return id;
+  },
 
-export function updateType(id, patch) {
-  mutate((s) => {
-    const t = s.types.find((x) => x.id === id);
-    if (t) Object.assign(t, patch);
-  });
-}
+  updateProduct(id, name, bakes) {
+    const clean = name.trim();
+    if (!clean) return;
+    mutate((s) => {
+      const p = s.products.find((x) => x.id === id);
+      if (!p) return;
+      p.name = clean;
+      p.bakes = bakes;
+    });
+  },
 
-export function deleteType(id) {
-  if (id === "other") return;
-  mutate((s) => {
-    s.types = s.types.filter((x) => x.id !== id);
-  });
-}
+  removeProduct(id) {
+    mutate((s) => {
+      s.products = s.products.filter((p) => p.id !== id);
+    });
+  },
 
-export function addTypeBake(typeId, { temp, minutes }) {
-  mutate((s) => {
-    const t = s.types.find((x) => x.id === typeId);
-    if (t) t.bakes.push({ temp, minutes });
-  });
-}
+  updateAi(patch) {
+    mutate((s) => {
+      Object.assign(s.settings.ai, patch);
+    });
+  },
 
-export function removeTypeBake(typeId, index) {
-  mutate((s) => {
-    const t = s.types.find((x) => x.id === typeId);
-    if (t) t.bakes.splice(index, 1);
-  });
-}
+  importJson(raw) {
+    const next = decode(raw);
+    replaceState(next);
+    return next;
+  },
 
-/* ---------- settings ---------- */
+  exportJson() {
+    return encode(state);
+  },
 
-export function updateSettings(patch) {
-  mutate((s) => Object.assign(s.settings, patch));
-}
+  clearFormulas() {
+    mutate((s) => {
+      s.formulas = [];
+    });
+  },
 
-/* ---------- import / export / clear ---------- */
+  resetAll() {
+    replaceState(defaultState());
+  },
+};
 
-export function exportJSON() {
-  return JSON.stringify({ app: "jiaoji", exportedAt: new Date().toISOString(), data: state }, null, 2);
-}
-
-export function importJSON(text) {
-  const parsed = JSON.parse(text);
-  const data = parsed?.data && typeof parsed.data === "object" ? parsed.data : parsed;
-  if (!data || typeof data !== "object") throw new Error("格式不正确");
-  const d = defaults();
-  state = {
-    ...d,
-    ...data,
-    settings: { ...d.settings, ...(data.settings || {}) },
-    types: Array.isArray(data.types) && data.types.length ? data.types : d.types,
-    customers: Array.isArray(data.customers) ? data.customers : d.customers,
-    sampling: Array.isArray(data.sampling) ? data.sampling : [],
-    samples: Array.isArray(data.samples) ? data.samples : [],
-    bakes: Array.isArray(data.bakes) ? data.bakes : [],
-    seq: data.seq && typeof data.seq === "object" ? data.seq : {},
-  };
-  notify();
-}
-
-export function clearAll() {
-  state = defaults();
-  notify();
-}
-
-/* time helper used by parsers */
-export { at };
-
-/** recently finished bakes (for "刚出炉" list), newest first */
-export function recentDoneBakes(limit = 6) {
-  return state.bakes
-    .filter((b) => b.status === "done" && b.doneAt && Date.now() - b.doneAt < 36 * 3600000)
-    .sort((a, b) => b.doneAt - a.doneAt)
-    .slice(0, limit);
+export function legacyBackup() {
+  try {
+    return localStorage.getItem(LEGACY_BACKUP_KEY);
+  } catch {
+    return null;
+  }
 }

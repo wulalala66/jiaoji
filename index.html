@@ -5,18 +5,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#f2f4f1" />
     <meta name="color-scheme" content="light" />
-    <meta name="description" content="胶记：取样提醒、烘烤计时、胶粘剂检测记录，一个安静好用的实验室工作台。" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      name="description"
+      content="胶记：比重计算、配料单、产品条件表，胶粘剂实验室的随身工具。"
+    />
+    <!--
+      内容安全策略：
+        · 脚本只允许本文件来源，页面里没有任何内联 script / eval；
+        · connect-src 必须是 * —— AI 接口地址是用户自己填的，事先无法枚举；
+        · 其余一律收紧，防止被塞 iframe、被改 base、被提交表单到别处。
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src *; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="胶记" />
-    <title>胶记 · 实验室工作台</title>
+    <title>胶记 · 胶粘剂实验室工具</title>
     <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <link rel="manifest" href="./manifest.webmanifest" />
-    <link rel="stylesheet" href="./css/base.css" />
-    <link rel="stylesheet" href="./css/pages.css" />
-    <link rel="stylesheet" href="./css/records-settings.css" />
-    <link rel="stylesheet" href="./css/overlays.css" />
+    <link rel="stylesheet" href="./css/app.css" />
   </head>
   <body>
     <div class="ambient" aria-hidden="true">
@@ -26,37 +37,14 @@
 
     <main id="view" class="view" tabindex="-1"></main>
 
-    <nav class="tabbar" aria-label="主导航">
-      <button class="tab on" data-tab="today" type="button">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
-        <span>今天</span>
-      </button>
-      <button class="tab" data-tab="oven" type="button">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2c1.7 4.2 5.4 6.4 5.4 10.5a5.4 5.4 0 0 1-10.8 0c0-2.1 1-3.8 2.2-5.3.5 1.9 1.5 3 2.7 3.6C11.2 7.4 11.2 4.4 12 2Z"/><path d="M9.6 17.2c0-1.4 2.4-2.3 2.4-4.2 0 1.9 2.4 2.8 2.4 4.2a2.4 2.4 0 0 1-4.8 0Z"/></svg>
-        <span>烘箱</span>
-      </button>
-      <button id="fab" class="fab" type="button" aria-label="快速添加">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-      </button>
-      <button class="tab" data-tab="records" type="button">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 9h7M8 13h7M8 17h4"/></svg>
-        <span>记录</span>
-      </button>
-      <button class="tab" data-tab="settings" type="button">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>
-        <span>设置</span>
-      </button>
-    </nav>
+    <nav id="tabbar" class="tabbar" aria-label="主导航"></nav>
 
     <div id="toasts" aria-live="polite"></div>
 
+    <noscript>
+      <p style="padding: 24px; font-family: sans-serif">胶记需要 JavaScript 才能计算和保存数据，请在浏览器设置里打开。</p>
+    </noscript>
+
     <script type="module" src="./js/main.js"></script>
-    <script type="module">
-      if ("serviceWorker" in navigator) {
-        addEventListener("load", () => {
-          navigator.serviceWorker.register("./sw.js").catch(() => {});
-        });
-      }
-    </script>
   </body>
 </html>

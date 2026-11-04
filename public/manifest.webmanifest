@@ -1,7 +1,7 @@
 {
-  "name": "胶记 · 实验室工作台",
+  "name": "胶记 · 胶粘剂实验室工具",
   "short_name": "胶记",
-  "description": "取样提醒、烘烤计时与胶粘剂检测记录",
+  "description": "比重计算、配料单、产品条件表，胶粘剂实验室的随身工具",
   "lang": "zh-CN",
   "start_url": "./",
   "scope": "./",

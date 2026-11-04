@@ -1,9 +1,23 @@
-/* 胶记 service worker: runtime cache, network-first for freshness */
-const CACHE = "jiaoji-v1";
-const CORE = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon.svg"];
+/* ============================================================
+   胶记 · service worker
+   策略：
+     · 导航请求：先走网络（拿到最新页面），失败再退回缓存 —— 离线也能打开；
+     · 静态资源：stale-while-revalidate，回头发新版本会自动更新；
+     · 跨域请求（AI 接口）一律不碰，绝不缓存对话内容。
+   缓存名带版本号：发版后旧缓存会在 activate 里被清掉。
+   ============================================================ */
+
+const VERSION = "3.0.0";
+const CACHE = `jiaoji-${VERSION}`;
+const CORE = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon.svg", "./css/app.css"];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(CORE)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches
+      .open(CACHE)
+      .then((c) => c.addAll(CORE).catch(() => undefined))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener("activate", (e) => {
@@ -18,10 +32,16 @@ self.addEventListener("activate", (e) => {
 self.addEventListener("fetch", (e) => {
   const req = e.request;
   if (req.method !== "GET") return;
-  const url = new URL(req.url);
+
+  let url;
+  try {
+    url = new URL(req.url);
+  } catch {
+    return;
+  }
+  // AI 接口、任何跨域请求：不拦、不缓存
   if (url.origin !== location.origin) return;
 
-  // SPA shell
   if (req.mode === "navigate") {
     e.respondWith(
       fetch(req)
@@ -30,17 +50,16 @@ self.addEventListener("fetch", (e) => {
           caches.open(CACHE).then((c) => c.put("./index.html", copy));
           return res;
         })
-        .catch(() => caches.match("./index.html"))
+        .catch(() => caches.match("./index.html").then((hit) => hit || Response.error()))
     );
     return;
   }
 
-  // assets: stale-while-revalidate
   e.respondWith(
     caches.match(req).then((hit) => {
       const net = fetch(req)
         .then((res) => {
-          if (res.ok) {
+          if (res.ok && res.type === "basic") {
             const copy = res.clone();
             caches.open(CACHE).then((c) => c.put(req, copy));
           }
@@ -48,35 +67,6 @@ self.addEventListener("fetch", (e) => {
         })
         .catch(() => hit);
       return hit || net;
-    })
-  );
-});
-
-/* alarm relay: page asks SW to show a notification even when tab hidden */
-self.addEventListener("message", (e) => {
-  const data = e.data || {};
-  if (data.type === "notify") {
-    self.registration.showNotification(data.title || "胶记提醒", {
-      body: data.body || "",
-      tag: data.tag || "jiaoji",
-      renotify: true,
-      requireInteraction: true,
-      vibrate: data.vibrate !== false ? [300, 150, 300, 150, 300] : undefined,
-      icon: "./icons/icon-192.png",
-      badge: "./icons/icon-192.png",
-      data: { url: "./" },
-    });
-  }
-});
-
-self.addEventListener("notificationclick", (e) => {
-  e.notification.close();
-  e.waitUntil(
-    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
-      for (const c of list) {
-        if ("focus" in c) return c.focus();
-      }
-      return self.clients.openWindow("./");
     })
   );
 });
