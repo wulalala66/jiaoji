@@ -52,6 +52,9 @@ object Ai {
     /** 单个工具结果最多回给模型这么多字（网页正文很容易上万） */
     private const val MAX_TOOL_RESULT = 6_000
 
+    /** 网络类故障最多重试几次（1s / 2s / 4s 退避） */
+    private const val MAX_RETRIES = 3
+
     // ---------------------------------------------------------------- 模型列表
 
     /**
@@ -114,9 +117,23 @@ object Ai {
         var round = 0
         // 同一轮里重复调用同一个工具（模型钻牛角尖）时直接回放结果，不要真的再执行一次
         val done = HashMap<String, String>()
+
+        /** 收尾：模型什么都没说的时候别留一个空气泡 */
+        fun finish(): List<ChatMsg> {
+            if (out.none { it.role == "assistant" && it.content.isNotBlank() }) {
+                out.add(
+                    ChatMsg(
+                        role = "assistant",
+                        content = "模型这次什么都没返回。可能是接口把这轮请求吞了，换个说法再试一次，" +
+                            "或者去「设置 → 诊断」跑一下连通性测试。",
+                    )
+                )
+            }
+            return out
+        }
         while (round < maxRounds) {
             round++
-            var reply = chatOnce(settings, msgs, onDelta, onThink, tools)
+            var reply = chatOnce(settings, msgs, onDelta, onThink, onStatus, tools)
             var calls = reply.toolCalls
             if (calls.isEmpty()) {
                 // 有些模型/中转不认 tools，会把调用当成 JSON 正文吐出来。
@@ -133,7 +150,7 @@ object Ai {
                         continue
                     }
                     out.add(reply)
-                    return@withContext out
+                    return@withContext finish()
                 }
                 main.post { onStatus("按回复里的 JSON 执行工具…") }
                 reply = reply.copy(content = clean, toolCalls = fromText)
@@ -154,13 +171,18 @@ object Ai {
                 main.post { onStatus("正在$label…") }
                 val raw = try {
                     AiTools.run(call.name, call.args)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e // 用户点了停止，不能当成「工具执行失败」继续跑
                 } catch (e: Throwable) {
-                    "工具执行失败：${e.message ?: e.javaClass.simpleName}"
+                    "工具执行失败：[${e.javaClass.simpleName}] ${e.message ?: "没有错误信息"}"
                 }
+                // 空输出会让模型以为「这个工具没执行过」，于是反复重试；
+                // 给个占位文本，明确告诉它「跑了，但没东西」。
+                val body = raw.ifBlank { "(no output)" }
                 // 网页正文这类大结果别把上下文撑爆
-                val result = if (raw.length > MAX_TOOL_RESULT) {
-                    raw.take(MAX_TOOL_RESULT) + "\n…（结果太长，已截断）"
-                } else raw
+                val result = if (body.length > MAX_TOOL_RESULT) {
+                    body.take(MAX_TOOL_RESULT) + "\n…（结果太长，已截断）"
+                } else body
                 done[key] = result
                 out.add(ChatMsg(role = "tool", content = result, toolCallId = call.id, name = call.name))
                 msgs = msgs + ChatMsg(role = "tool", content = result, toolCallId = call.id, name = call.name)
@@ -177,7 +199,7 @@ object Ai {
                 )
             )
         }
-        out
+        return@withContext finish()
     }
 
     /**
@@ -316,31 +338,37 @@ object Ai {
         history: List<ChatMsg>,
         onDelta: (String) -> Unit,
         onThink: (String) -> Unit = {},
+        onStatus: (String) -> Unit = {},
         tools: Boolean = true,
     ): ChatMsg {
         if (settings.thinking.isNotBlank()) {
             try {
-                return once(settings, history, onDelta, onThink, tools, withEffort = true)
+                return once(settings, history, onDelta, onThink, onStatus, tools, withEffort = true)
             } catch (e: AiException) {
                 val m = e.message ?: ""
                 if (!m.contains("400") || !REASONING_REJECT.containsMatchIn(m)) throw e
                 main.post { onThink("") }
-                return once(settings, history, onDelta, onThink, tools, withEffort = false)
+                return once(settings, history, onDelta, onThink, onStatus, tools, withEffort = false)
             }
         }
-        return once(settings, history, onDelta, onThink, tools, withEffort = false)
+        return once(settings, history, onDelta, onThink, onStatus, tools, withEffort = false)
     }
 
     /**
-     * 带一次重试的单次请求。
-     * 只有「一个字都还没吐出来」时才重试 —— 已经流式输出了一半再重试，
-     * 用户会看到重复的两段回答。
+     * 带退避重试的单次请求（参考 RikkaHub 的 RetryPolicy）。
+     *
+     * 规则：
+     *  - 只重试网络类故障（IOException），接口明确报错（4xx/5xx）不重试；
+     *  - 只在「一个字都还没吐出来」时重试，否则用户会看到重复的两段回答；
+     *  - 间隔 1s → 2s → 4s，最多 3 次；
+     *  - 每次重试前检查协程是否已被取消 —— 用户点了「停止」不能再被拉起来。
      */
     private fun once(
         settings: AiSettings,
         history: List<ChatMsg>,
         onDelta: (String) -> Unit,
         onThink: (String) -> Unit,
+        onStatus: (String) -> Unit,
         tools: Boolean,
         withEffort: Boolean,
     ): ChatMsg {
@@ -350,22 +378,42 @@ object Ai {
             onDelta(piece)
         }
         var last: Throwable? = null
-        for (attempt in 0..1) {
+        for (attempt in 0..MAX_RETRIES) {
             try {
                 return onceRaw(settings, history, safeDelta, onThink, tools, withEffort)
             } catch (e: AiException) {
                 throw e // 接口已经明确告诉我们原因了，重试没意义
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+                throw wrapNetwork(e)
             } catch (e: Throwable) {
                 last = e
-                if (streamed || attempt == 1) break
+                if (streamed || attempt == MAX_RETRIES) break
+                if (!isRetryable(e)) throw wrapNetwork(e)
+                val waitMs = 1000L shl attempt
+                main.post { onStatus("网络不稳，${waitMs / 1000} 秒后重试（${attempt + 1}/$MAX_RETRIES）…") }
                 try {
-                    Thread.sleep(350)
+                    Thread.sleep(waitMs)
                 } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
                     break
                 }
             }
         }
+        main.post { onStatus("") }
         throw wrapNetwork(last)
+    }
+
+    /** 只有「连不上/读一半断了」这类才值得重试 */
+    private fun isRetryable(e: Throwable): Boolean {
+        var t: Throwable? = e
+        var depth = 0
+        while (t != null && depth < 6) {
+            if (t is java.io.IOException) return true
+            t = t.cause
+            depth++
+        }
+        return false
     }
 
     /** 把 IOException 翻译成用户看得懂的话 */
@@ -384,9 +432,30 @@ object Ai {
         return AiException(hint)
     }
 
+    /**
+     * 服务端的错误体五花八门：{"error":{"message":"..."}}、{"detail":"..."}、纯文本…
+     * 能挖出人话就挖，挖不出来再贴原文，总比让用户对着一坨 JSON 强。
+     */
+    private fun describeApiError(raw: Any?): String {
+        fun dig(v: Any?): String? = when (v) {
+            null -> null
+            is JSONObject -> {
+                val keys = listOf("message", "detail", "msg", "error", "description", "reason")
+                keys.firstNotNullOfOrNull { k -> if (v.has(k)) dig(v.opt(k)) else null }
+                    ?: v.toString().take(300)
+            }
+            is org.json.JSONArray -> if (v.length() > 0) dig(v.opt(0)) else null
+            else -> v.toString().takeIf { it.isNotBlank() && it != "null" }
+        }
+        return dig(raw) ?: "接口返回了错误，但没有说明原因"
+    }
+
     /** 把 HTTP 状态码翻译成人话，并把服务端的原文附在后面方便排查 */
     private fun httpError(code: Int, body: String): AiException {
-        val snippet = body.trim().take(300).ifBlank { "（没有返回内容）" }
+        val parsed = runCatching { JSONObject(body) }.getOrNull()
+            ?.let { describeApiError(it) }
+            ?: body.trim().take(300)
+        val snippet = parsed.ifBlank { "（没有返回内容）" }
         val hint = when (code) {
             401, 403 -> "Key 无效或没有权限（HTTP $code）"
             404 -> "地址不对：接口地址要填到 /v1 为止（HTTP 404）"
@@ -431,6 +500,7 @@ object Ai {
 
             val sb = StringBuilder()
             val think = StringBuilder()
+            var finishReason = ""
             val calls = LinkedHashMap<Int, Pair<String, StringBuilder>>() // index -> id, name
             val argsBuf = HashMap<Int, StringBuilder>()
 
@@ -451,9 +521,13 @@ object Ai {
                     val json = try {
                         JSONObject(payload)
                     } catch (_: Throwable) {
-                        continue
+                        continue // data: null、心跳之类，跳过
                     }
+                    // 有些网关会在流里塞一条 {"error":{...}} 然后直接断开。
+                    // 以前这种会被当成「没有 choices」忽略掉，用户只看到一段空白回答。
+                    json.opt("error")?.let { throw AiException(describeApiError(it)) }
                     val choice = json.optJSONArray("choices")?.optJSONObject(0) ?: continue
+                    choice.optString("finish_reason", "").takeIf { it.isNotBlank() }?.let { finishReason = it }
                     val delta = choice.optJSONObject("delta") ?: continue
                     val piece = delta.optString("content", "")
                     if (piece.isEmpty()) {
@@ -496,8 +570,13 @@ object Ai {
             }
 
             val list = calls.entries.sortedBy { it.key }.mapNotNull { (idx, v) ->
-                if (v.first.isBlank() || v.second.toString().isBlank()) null
-                else AiCall(v.first, v.second.toString(), argsBuf[idx]?.toString() ?: "{}")
+                val name = v.second.toString()
+                if (name.isBlank()) null
+                // 有的中转不回 tool_call id，以前会被整条丢掉（模型以为改了、实际没改）
+                else AiCall(v.first.ifBlank { "call_$idx" }, name, argsBuf[idx]?.toString() ?: "{}")
+            }
+            if (finishReason == "length" && sb.isNotEmpty()) {
+                sb.append("\n\n（回答被长度上限截断了，可以让它接着写）")
             }
             return ChatMsg(role = "assistant", content = sb.toString(), toolCalls = list, thinking = think.toString())
         } finally {

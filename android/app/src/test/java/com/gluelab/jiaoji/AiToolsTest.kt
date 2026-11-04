@@ -49,7 +49,10 @@ class AiToolsTest {
     @Test
     fun addItemThenFillRestReachesHundred() {
         val id = firstFormulaId()
-        AiTools.run("clear_items", "{\"formulaId\":\"$id\"}")
+        // 清空是破坏性操作，必须带 confirm=true 才会真的执行
+        val refused = JSONObject(AiTools.run("clear_items", "{\"formulaId\":\"$id\"}"))
+        assertTrue("不带 confirm 应该被拒绝", refused.has("error"))
+        AiTools.run("clear_items", "{\"formulaId\":\"$id\",\"confirm\":true}")
         AiTools.run("add_item", "{\"formulaId\":\"$id\",\"name\":\"D1NP\",\"percent\":30}")
         AiTools.run("add_item", "{\"formulaId\":\"$id\",\"name\":\"CC-400\",\"percent\":40}")
         val before = JSONObject(AiTools.run("get_formula", "{\"formulaId\":\"$id\"}"))
@@ -71,7 +74,10 @@ class AiToolsTest {
     @Test
     fun addItemTwiceWithSameNameUpdatesInsteadOfDuplicating() {
         val id = firstFormulaId()
-        AiTools.run("clear_items", "{\"formulaId\":\"$id\"}")
+        // 清空是破坏性操作，必须带 confirm=true 才会真的执行
+        val refused = JSONObject(AiTools.run("clear_items", "{\"formulaId\":\"$id\"}"))
+        assertTrue("不带 confirm 应该被拒绝", refused.has("error"))
+        AiTools.run("clear_items", "{\"formulaId\":\"$id\",\"confirm\":true}")
         AiTools.run("add_item", "{\"formulaId\":\"$id\",\"name\":\"色浆\",\"percent\":1.5}")
         AiTools.run("add_item", "{\"formulaId\":\"$id\",\"name\":\"色浆\",\"percent\":2.5}")
         val f = state().formulaOf(id)!!
@@ -82,7 +88,10 @@ class AiToolsTest {
     @Test
     fun updateAndRemoveItemByName() {
         val id = firstFormulaId()
-        AiTools.run("clear_items", "{\"formulaId\":\"$id\"}")
+        // 清空是破坏性操作，必须带 confirm=true 才会真的执行
+        val refused = JSONObject(AiTools.run("clear_items", "{\"formulaId\":\"$id\"}"))
+        assertTrue("不带 confirm 应该被拒绝", refused.has("error"))
+        AiTools.run("clear_items", "{\"formulaId\":\"$id\",\"confirm\":true}")
         AiTools.run("add_item", "{\"formulaId\":\"$id\",\"name\":\"D-80\",\"percent\":6.5}")
         AiTools.run("update_item", "{\"formulaId\":\"$id\",\"item\":\"d-80\",\"percent\":8}")
         assertEquals(8.0, state().formulaOf(id)!!.items.first().percent, 0.001)
@@ -93,7 +102,10 @@ class AiToolsTest {
     @Test
     fun setTotalRescalesGramsNotPercent() {
         val id = firstFormulaId()
-        AiTools.run("clear_items", "{\"formulaId\":\"$id\"}")
+        // 清空是破坏性操作，必须带 confirm=true 才会真的执行
+        val refused = JSONObject(AiTools.run("clear_items", "{\"formulaId\":\"$id\"}"))
+        assertTrue("不带 confirm 应该被拒绝", refused.has("error"))
+        AiTools.run("clear_items", "{\"formulaId\":\"$id\",\"confirm\":true}")
         AiTools.run("add_item", "{\"formulaId\":\"$id\",\"name\":\"D1NP\",\"percent\":50}")
         AiTools.run("set_formula_total", "{\"formulaId\":\"$id\",\"totalG\":1000}")
         val f = state().formulaOf(id)!!

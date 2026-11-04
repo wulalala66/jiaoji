@@ -97,8 +97,9 @@ object AiTools {
             put("formulaId", p("string", "配方 id"))
             put("item", p("string", "原料名或 item id，可空"))
         }, listOf("formulaId")))
-        put(fn("clear_items", "清空配方的所有原料（只留空配方）", JSONObject().apply {
+        put(fn("clear_items", "清空配方的所有原料（只留空配方）。破坏性操作：必须先把要删的原料列给用户确认，用户同意后才带 confirm=true 调用", JSONObject().apply {
             put("formulaId", p("string", "配方 id"))
+            put("confirm", p("boolean", "用户确认清空后传 true"))
         }, listOf("formulaId")))
         put(fn("set_formula_meta", "写配方的实验目的 / 固化温度（会出现在打印的配料单上）", JSONObject().apply {
             put("formulaId", p("string", "配方 id"))
@@ -128,7 +129,10 @@ object AiTools {
         val a = try {
             if (argsJson.isBlank()) JSONObject() else JSONObject(argsJson)
         } catch (e: Throwable) {
-            return "参数不是合法 JSON：${e.message}"
+            // 把工具名和原文一起回给模型，它才知道该怎么修；用户那边也留了线索
+            return err(
+                "参数不是合法 JSON（工具 $name）：${e.message}；收到的原文：${argsJson.take(200)}"
+            )
         }
         return when (name) {
             "list_formulas" -> onMain { listFormulas(now()) }
@@ -190,6 +194,12 @@ object AiTools {
             "clear_items" -> onMain {
                 val id = a.optString("formulaId")
                 val f = now().formulaOf(id) ?: return@onMain err("没有这个配方：$id")
+                if (!a.optBoolean("confirm", false)) {
+                    return@onMain err(
+                        "清空是不可恢复的破坏性操作，这次没有执行。" +
+                            "先把要删的原料列出来跟用户确认，用户明确同意后再带 confirm=true 调用。"
+                    )
+                }
                 f.items.map { it.id }.forEach { Repo.I.removeFormulaItem(id, it) }
                 getFormula(now(), id)
             }

@@ -8,7 +8,7 @@
    ============================================================ */
 
 import { el, num, clear } from "./utils.js";
-import { actions, getState, gramsOf, restPercent, sumPercent, subscribe } from "./store.js";
+import { actions, getState, gramsOf, restPercent, sumPercent } from "./store.js";
 import { toast } from "./ui.js";
 
 // ---------------------------------------------------------------- 工具定义
@@ -22,7 +22,7 @@ const TOOL_DEFS = [
   fn("update_item", "改一行原料（按名称或 id 定位）", { formulaId: p("string", "配方 id"), item: p("string", "原料名或 id"), name: p("string", "新名称，不改就不填"), percent: p("number", "新百分比，不改就不填") }, ["formulaId", "item"]),
   fn("remove_item", "从配方里删掉一行原料", { formulaId: p("string", "配方 id"), item: p("string", "原料名或 id") }, ["formulaId", "item"]),
   fn("fill_rest", "把剩余百分比补到某一行（不填 item 就补给占比最大的那行）", { formulaId: p("string", "配方 id"), item: p("string", "原料名或 id，可空") }, ["formulaId"]),
-  fn("clear_items", "清空配方的所有原料", { formulaId: p("string", "配方 id") }, ["formulaId"]),
+  fn("clear_items", "清空配方的所有原料。破坏性操作：必须先把要删的原料列给用户确认，用户同意后才带 confirm=true 调用", { formulaId: p("string", "配方 id"), confirm: p("boolean", "用户确认清空后传 true") }, ["formulaId"]),
   fn("set_formula_meta", "写配方的实验目的 / 固化温度（会出现在打印的配料单上）", { formulaId: p("string", "配方 id"), purpose: p("string", "实验目的"), cure: p("string", "固化温度，如 140*30") }, ["formulaId"]),
   fn("get_products", "查产品条件表：产品名对应的烘烤温度和时间", { query: p("string", "产品名关键词，可空") }, []),
   fn("calc", "算一个数学表达式，支持 + - * / % ^ 和括号", { expression: p("string", "表达式，例如 (600*26.33)/100") }, ["expression"]),
@@ -85,37 +85,87 @@ export function normalizeBase(raw) {
 
 class AiError extends Error {}
 
-async function request(settings, path, init, signal) {
+const RETRY_DELAYS = [1000, 2000, 4000];
+
+/**
+ * 发一个请求。只在「连不上」时退避重试（1s / 2s / 4s），
+ * 接口明确报错（4xx/5xx）不重试 —— 那是参数问题，重试多少次都一样。
+ */
+async function request(settings, path, init, signal, onRetry) {
   const base = normalizeBase(settings.baseUrl);
   if (!base) throw new AiError("还没填接口地址");
   const url = base + path;
-  let res;
-  try {
-    res = await fetch(url, {
-      ...init,
-      signal,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + settings.apiKey.trim(),
-        ...(init?.headers || {}),
-      },
-    });
-  } catch (e) {
-    if (e.name === "AbortError") throw e;
-    throw new AiError(
-      "连不上接口。常见原因：地址写错、对方不允许跨域（CORS）、网络不通。\n" +
-        "浏览器里调用第三方接口需要对方允许跨域，如果一直被拦，用安卓 App 更稳。"
-    );
+
+  let lastError = null;
+  for (let attempt = 0; attempt <= RETRY_DELAYS.length; attempt++) {
+    if (attempt > 0) {
+      const wait = RETRY_DELAYS[attempt - 1];
+      onRetry?.(attempt, RETRY_DELAYS.length, wait);
+      await new Promise((r) => setTimeout(r, wait));
+      if (signal?.aborted) throw new DOMException("已停止", "AbortError");
+    }
+    let res;
+    try {
+      res = await fetch(url, {
+        ...init,
+        signal,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + settings.apiKey.trim(),
+          ...(init?.headers || {}),
+        },
+      });
+    } catch (e) {
+      if (e.name === "AbortError") throw e;
+      lastError = e;
+      continue; // 网络类故障，退避后再来
+    }
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new AiError(httpMessage(res.status, body));
+    }
+    return res;
   }
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new AiError(httpMessage(res.status, body));
-  }
-  return res;
+
+  throw new AiError(
+    "连不上接口（已重试 " + RETRY_DELAYS.length + " 次）。常见原因：地址写错、对方不允许跨域（CORS）、网络不通。\n" +
+      (lastError?.message ? "底层错误：" + lastError.message : "") +
+      "\n浏览器里调用第三方接口需要对方允许跨域，如果一直被拦，用安卓 App 更稳。"
+  );
+}
+
+/** 从五花八门的错误体里挖出人话：{"error":{"message":"..."}}、{"detail":"..."}、纯文本… */
+function describeApiError(raw) {
+  const dig = (v) => {
+    if (v === null || v === undefined) return null;
+    if (typeof v === "string") return v.trim() || null;
+    if (Array.isArray(v)) return v.length ? dig(v[0]) : null;
+    if (typeof v === "object") {
+      for (const k of ["message", "detail", "msg", "error", "description", "reason"]) {
+        if (k in v) {
+          const r = dig(v[k]);
+          if (r) return r;
+        }
+      }
+      try {
+        return JSON.stringify(v).slice(0, 300);
+      } catch {
+        return null;
+      }
+    }
+    return String(v);
+  };
+  return dig(raw) || "接口返回了错误，但没有说明原因";
 }
 
 function httpMessage(code, body) {
-  const snippet = (body || "").trim().slice(0, 300) || "（没有返回内容）";
+  let parsed = (body || "").trim();
+  try {
+    parsed = describeApiError(JSON.parse(parsed));
+  } catch {
+    /* 不是 JSON，直接用原文 */
+  }
+  const snippet = parsed.slice(0, 300) || "（没有返回内容）";
   const hint =
     code === 401 || code === 403
       ? "Key 无效或没有权限"
@@ -147,7 +197,7 @@ export async function fetchModels(settings) {
 }
 
 /** 一次流式请求；返回 { content, thinking, toolCalls } */
-async function streamOnce(settings, messages, { tools = true, signal, onDelta, onThink }) {
+async function streamOnce(settings, messages, { tools = true, signal, onDelta, onThink, onRetry }) {
   const body = {
     model: settings.model,
     stream: true,
@@ -161,13 +211,13 @@ async function streamOnce(settings, messages, { tools = true, signal, onDelta, o
 
   let res;
   try {
-    res = await request(settings, "/chat/completions", { method: "POST", body: JSON.stringify(body) }, signal);
+    res = await request(settings, "/chat/completions", { method: "POST", body: JSON.stringify(body) }, signal, onRetry);
   } catch (e) {
     // 有的模型/中转不认 reasoning_effort，去掉再试一次
     if (settings.thinking && /reasoning|effort|thinking|400/i.test(e.message || "")) {
       const retry = { ...body };
       delete retry.reasoning_effort;
-      res = await request(settings, "/chat/completions", { method: "POST", body: JSON.stringify(retry) }, signal);
+      res = await request(settings, "/chat/completions", { method: "POST", body: JSON.stringify(retry) }, signal, onRetry);
     } else throw e;
   }
 
@@ -197,6 +247,7 @@ async function streamOnce(settings, messages, { tools = true, signal, onDelta, o
   let buffer = "";
   let content = "";
   let thinking = "";
+  let finishReason = "";
   const calls = new Map();
 
   while (true) {
@@ -217,8 +268,12 @@ async function streamOnce(settings, messages, { tools = true, signal, onDelta, o
       try {
         json = JSON.parse(payload);
       } catch {
-        continue;
+        continue; // data: null、心跳之类
       }
+      // 有的网关会在流里塞一条 {"error":{...}} 然后断开，
+      // 以前这种被当成「没有 choices」忽略，用户只看到空白回答
+      if (json?.error) throw new AiError(describeApiError(json.error));
+      if (json?.choices?.[0]?.finish_reason) finishReason = json.choices[0].finish_reason;
       const delta = json?.choices?.[0]?.delta;
       if (!delta) continue;
       if (delta.content) {
@@ -244,11 +299,14 @@ async function streamOnce(settings, messages, { tools = true, signal, onDelta, o
   }
 
   return {
-    content,
+    content:
+      finishReason === "length" && content
+        ? content + "\n\n（回答被长度上限截断了，可以让它接着写）"
+        : content,
     thinking,
     toolCalls: [...calls.entries()]
       .sort((a, b) => a[0] - b[0])
-      .map(([i, c]) => ({ id: c.id || `text_${i}`, name: c.name, args: c.args || "{}" }))
+      .map(([i, c]) => ({ id: c.id || `call_${i}`, name: c.name, args: c.args || "{}" }))
       .filter((c) => c.name),
   };
 }
@@ -394,6 +452,12 @@ export function runTool(name, argsJson) {
         const id = String(a.formulaId || "");
         const f = state.formulas.find((x) => x.id === id);
         if (!f) return { error: `没有这个配方：${id}` };
+        if (a.confirm !== true) {
+          return {
+            error:
+              "清空是不可恢复的破坏性操作，这次没有执行。先把要删的原料列出来跟用户确认，用户明确同意后再带 confirm=true 调用。",
+          };
+        }
         f.items.slice().forEach((it) => actions.removeItem(id, it.id));
         return getFormulaJson(id);
       }
@@ -620,10 +684,16 @@ export async function regenerate(formulaId) {
   await run(formulaId);
 }
 
+/** 停止生成：已经吐出来的内容保留成一条消息（ChatGPT 也是这么做的） */
 export function stop(formulaId) {
   const s = sessionOf(formulaId);
+  const partial = s.stream;
+  const thinking = s.think;
   s.controller?.abort();
   s.controller = null;
+  if (partial.trim()) {
+    s.messages.push({ role: "assistant", content: partial.trim(), thinking, toolCalls: [] });
+  }
   s.busy = false;
   s.stream = "";
   s.think = "";
@@ -683,6 +753,10 @@ async function run(formulaId) {
         history.map(toApiMessage),
         {
           signal,
+          onRetry: (attempt, total, wait) => {
+            s.status = `网络不稳，${wait / 1000} 秒后重试（${attempt}/${total}）…`;
+            notify(s);
+          },
           onDelta: (piece) => {
             s.stream += piece;
             notify(s);
@@ -710,6 +784,12 @@ async function run(formulaId) {
       history = [...history, assistant];
 
       if (!reply.toolCalls.length) {
+        if (!reply.content.trim()) {
+          s.messages.push({
+            role: "assistant",
+            content: "模型这次什么都没返回。可能是接口把这轮请求吞了，换个说法再试一次，或者去「设置」测一下连通性。",
+          });
+        }
         s.stream = "";
         break;
       }

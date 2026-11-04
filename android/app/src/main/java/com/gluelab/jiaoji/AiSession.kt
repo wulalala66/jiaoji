@@ -79,10 +79,20 @@ object AiSession {
         run(s, settings)
     }
 
+    /**
+     * 停止生成。
+     * 已经吐出来的内容保留成一条消息（ChatGPT 也是这么做的）——
+     * 用户点了停止，多半是想留住前半段，而不是看着它凭空消失。
+     */
     fun stop(id: String) {
         val s = of(id)
+        val partial = s.stream
+        val thinking = s.think
         s.job?.cancel()
         s.job = null
+        if (partial.isNotBlank()) {
+            s.msgs.add(ChatMsg(role = "assistant", content = partial.trim(), thinking = thinking))
+        }
         s.busy = false
         s.stream = ""
         s.think = ""
