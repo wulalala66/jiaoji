@@ -107,3 +107,4 @@ android/app/src/test/  Robolectric 测试（每屏冒烟 + AI 工具读写 + 比
 index.html css/ js/ public/  网页版（PWA，仍在 Pages 上）
 .github/workflows/deploy.yml  构建 + 测试 + 签名 + Release + Pages
 ```
+
