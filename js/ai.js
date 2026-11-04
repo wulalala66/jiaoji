@@ -311,6 +311,75 @@ async function streamOnce(settings, messages, { tools = true, signal, onDelta, o
   };
 }
 
+// ---------------------------------------------------------------- 附件
+
+const MAX_IMAGE_EDGE = 1568;
+const MAX_TEXT_CHARS = 30000;
+export const MAX_FILES = 4;
+
+const TEXT_EXT = new Set(["txt", "md", "csv", "json", "log", "xml", "yml", "yaml", "ini"]);
+
+function isTextLike(file) {
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  return file.type.startsWith("text/") || file.type.includes("json") || TEXT_EXT.has(ext);
+}
+
+/**
+ * 图片压到最长边 1568px 再转 data URL：
+ * 一张 4000px 的原图 base64 之后能有 8MB，直接顶爆上下文和内存。
+ */
+async function downscaleImage(file) {
+  const readAsDataUrl = () =>
+    new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = () => reject(new Error("读不了这张图"));
+      r.readAsDataURL(file);
+    });
+
+  if (typeof createImageBitmap !== "function") return readAsDataUrl();
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_IMAGE_EDGE / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale));
+    const h = Math.max(1, Math.round(bmp.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const c2d = canvas.getContext("2d");
+    if (!c2d) return readAsDataUrl();
+    c2d.fillStyle = "#fff"; // 透明 PNG 转 JPEG 会变黑
+    c2d.fillRect(0, 0, w, h);
+    c2d.drawImage(bmp, 0, 0, w, h);
+    if (bmp.close) bmp.close();
+    return canvas.toDataURL("image/jpeg", 0.85);
+  } catch {
+    return readAsDataUrl();
+  }
+}
+
+/** 把一个 File 变成附件：图片走多模态，文本类拼进正文 */
+export async function readAttachment(file) {
+  if (file.size > 20 * 1024 * 1024) throw new Error(`文件太大了：${file.name}`);
+  if (file.type.startsWith("image/")) {
+    return { name: file.name, isImage: true, dataUrl: await downscaleImage(file), text: "" };
+  }
+  if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
+    throw new Error("网页版读不了 PDF。用安卓 App，或者截图发过来。");
+  }
+  if (isTextLike(file)) {
+    const text = await file.text();
+    if (!text.trim()) throw new Error(`文件是空的：${file.name}`);
+    return {
+      name: file.name,
+      isImage: false,
+      dataUrl: "",
+      text: text.length > MAX_TEXT_CHARS ? text.slice(0, MAX_TEXT_CHARS) + "\n…（后面还有内容，已截断）" : text,
+    };
+  }
+  throw new Error(`暂不支持这种文件：${file.name}`);
+}
+
 // ---------------------------------------------------------------- 工具执行
 
 function findItem(f, key) {
@@ -636,6 +705,13 @@ function toApiMessage(m) {
     };
   }
   if (m.role === "tool") return { role: "tool", content: m.content, tool_call_id: m.toolCallId, name: m.name };
+  if (m.images?.length) {
+    // OpenAI 多模态格式：content 变成数组，文字和图片各占一项
+    const parts = [];
+    if (m.content) parts.push({ type: "text", text: m.content });
+    for (const url of m.images) parts.push({ type: "image_url", image_url: { url } });
+    return { role: m.role, content: parts };
+  }
   return { role: m.role, content: m.content };
 }
 
@@ -668,11 +744,18 @@ async function maybeCompress(settings, messages, signal) {
   }
 }
 
-export async function send(formulaId, text) {
+/**
+ * 发一条消息。
+ * [attachments] 是已经读好的附件：图片进 images，文本类拼进正文。
+ */
+export async function send(formulaId, text, attachments = []) {
   const s = sessionOf(formulaId);
-  const clean = String(text || "").trim();
-  if (!clean || s.busy) return;
-  s.messages.push({ role: "user", content: clean });
+  if (s.busy) return;
+  const extra = attachments.filter((a) => !a.isImage).map((a) => `【附件：${a.name}】\n${a.text}`).join("\n\n");
+  const content = [String(text || "").trim(), extra].filter(Boolean).join("\n\n");
+  const images = attachments.filter((a) => a.isImage).map((a) => a.dataUrl);
+  if (!content && !images.length) return;
+  s.messages.push({ role: "user", content, images });
   await run(formulaId);
 }
 
@@ -949,9 +1032,79 @@ export function renderAiChat(root, formulaId, { navigate }) {
 
   const sendBtn = el("button", { class: "btn btn-primary chat-send", type: "button" }, "发送");
 
+  // ---- 附件
+  const pending = [];
+  const pendingBar = el("div", { class: "attach-bar", hidden: "true" });
+  const fileInput = el("input", {
+    type: "file",
+    hidden: "true",
+    multiple: "true",
+    accept: "image/*,application/pdf,text/*,.md,.csv,.json,.log,.yml,.yaml",
+  });
+  const attachBtn = el(
+    "button",
+    { class: "chat-attach", type: "button", "aria-label": "添加附件", onclick: () => fileInput.click() },
+    "＋"
+  );
+
+  fileInput.addEventListener("change", async (e) => {
+    const files = [...(e.target.files || [])];
+    e.target.value = "";
+    await addFiles(files);
+  });
+
+  // 截图直接粘贴进来
+  input.addEventListener("paste", async (e) => {
+    const files = [...(e.clipboardData?.files || [])];
+    if (files.length) {
+      e.preventDefault();
+      await addFiles(files);
+    }
+  });
+
+  async function addFiles(files) {
+    for (const file of files) {
+      if (pending.length >= MAX_FILES) {
+        toast(`一次最多带 ${MAX_FILES} 个附件`, "warn");
+        break;
+      }
+      try {
+        const a = await readAttachment(file);
+        pending.push(a);
+        drawPending();
+      } catch (err) {
+        toast(err.message, "danger", 3200);
+      }
+    }
+  }
+
+  function drawPending() {
+    clear(pendingBar);
+    pendingBar.hidden = pending.length === 0;
+    attachBtn.classList.toggle("on", pending.length > 0);
+    pending.forEach((a, i) => {
+      pendingBar.appendChild(
+        el(
+          "span",
+          { class: "attach-chip" },
+          (a.isImage ? "🖼 " : "📄 ") + a.name,
+          el("button", {
+            class: "attach-x",
+            type: "button",
+            "aria-label": "移除",
+            onclick: () => {
+              pending.splice(i, 1);
+              drawPending();
+            },
+          }, "✕")
+        )
+      );
+    });
+  }
+
   function submit() {
     const text = input.value.trim();
-    if (!text) return;
+    if (!text && !pending.length) return;
     const cur = getState().settings.ai;
     if (!cur.baseUrl || !cur.apiKey || !cur.model) {
       toast("先去设置里配好 AI", "warn");
@@ -961,7 +1114,10 @@ export function renderAiChat(root, formulaId, { navigate }) {
     input.value = "";
     input.style.height = "auto";
     pinned = true;
-    send(formulaId, text);
+    const files = pending.slice();
+    pending.length = 0;
+    drawPending();
+    send(formulaId, text, files);
   }
 
   root.appendChild(
@@ -986,7 +1142,8 @@ export function renderAiChat(root, formulaId, { navigate }) {
   );
 
   root.appendChild(el("div", { class: "chat-stage" }, list, jump));
-  root.appendChild(el("div", { class: "chat-composer" }, input, sendBtn));
+  root.appendChild(pendingBar);
+  root.appendChild(el("div", { class: "chat-composer" }, attachBtn, input, sendBtn, fileInput));
 
   // ---------------------------------------------------------------- 滚动
   // 贴底才跟随：用户往上翻历史时不被新 token 拽回去，
@@ -1050,7 +1207,15 @@ export function renderAiChat(root, formulaId, { navigate }) {
 
     s.messages.forEach((m, index) => {
       if (m.role === "user") {
-        list.appendChild(bubble("bubble-user", m.content));
+        const col = el("div", { class: "bubble-col-user" });
+        if (m.images?.length) {
+          col.appendChild(
+            el("div", { class: "bubble-images" },
+              ...m.images.map((u) => el("img", { class: "bubble-img", src: u, alt: "附件图片" })))
+          );
+        }
+        if (m.content) col.appendChild(bubble("bubble-user", m.content));
+        list.appendChild(col);
         return;
       }
       if (m.role === "assistant") {

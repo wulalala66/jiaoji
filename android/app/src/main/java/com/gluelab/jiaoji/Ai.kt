@@ -24,6 +24,8 @@ data class ChatMsg(
     val thinking: String = "",
     /** 这条回复思考了多久（毫秒），只在本地展示用 */
     var thinkMs: Long = 0L,
+    /** 用户消息带的图片：data:image/jpeg;base64,… 只在内存里，不落盘 */
+    val images: List<String> = emptyList(),
 )
 
 /** 模型发起的一次工具调用 */
@@ -726,6 +728,17 @@ fun ChatMsg.toJson(): JSONObject = JSONObject().apply {
                     put("id", c.id)
                     put("type", "function")
                     put("function", JSONObject().put("name", c.name).put("arguments", c.args.ifBlank { "{}" }))
+                })
+            }
+        })
+    } else if (images.isNotEmpty()) {
+        // OpenAI 多模态格式：content 变成数组，文字和图片各占一项
+        put("content", JSONArray().apply {
+            if (content.isNotBlank()) put(JSONObject().put("type", "text").put("text", content))
+            images.forEach { url ->
+                put(JSONObject().apply {
+                    put("type", "image_url")
+                    put("image_url", JSONObject().put("url", url))
                 })
             }
         })

@@ -51,11 +51,12 @@ object AiSession {
 
     fun of(id: String): Session = map.getOrPut(id) { Session() }
 
-    fun send(id: String, text: String, settings: AiSettings) {
+    fun send(id: String, text: String, settings: AiSettings, images: List<String> = emptyList()) {
         val s = of(id)
         val clean = text.trim()
-        if (clean.isEmpty() || s.busy) return
-        s.msgs.add(ChatMsg(role = "user", content = clean))
+        if (clean.isEmpty() && images.isEmpty()) return
+        if (s.busy) return
+        s.msgs.add(ChatMsg(role = "user", content = clean, images = images))
         run(s, settings)
     }
 

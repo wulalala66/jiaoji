@@ -9,6 +9,9 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -27,6 +30,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.runtime.mutableStateListOf
+import android.net.Uri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -92,6 +104,43 @@ fun FormulaAiScreen(state: AppState, formulaId: String, onBack: () -> Unit) {
     val listState = rememberLazyListState()
     val follow = rememberFollowBottom(listState)
     val scope = rememberCoroutineScope()
+
+    // 还没发出去的附件（只在内存里）
+    val pending = remember { mutableStateListOf<Attachment>() }
+    var attachSheet by remember { mutableStateOf(false) }
+    var loadingFile by remember { mutableStateOf(false) }
+
+    fun addUri(uri: Uri) {
+        if (pending.size >= Attach.MAX_FILES) {
+            Toast.makeText(ctx, "一次最多带 ${Attach.MAX_FILES} 个附件", Toast.LENGTH_SHORT).show()
+            return
+        }
+        loadingFile = true
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { Attach.load(ctx, uri) }
+            }
+            loadingFile = false
+            result.onSuccess { list ->
+                val room = Attach.MAX_FILES - pending.size
+                pending.addAll(list.take(room))
+                if (list.size > room) Toast.makeText(ctx, "只放了前 $room 个", Toast.LENGTH_SHORT).show()
+            }.onFailure {
+                Toast.makeText(ctx, it.message ?: "读不了这个文件", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    var cameraUri by remember { mutableStateOf<Uri?>(null) }
+    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        if (ok) cameraUri?.let { addUri(it) }
+    }
+    val pickImage = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let { addUri(it) }
+    }
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { addUri(it) }
+    }
 
     // 只有「本来就贴着底部」的时候才跟着滚：
     // 新消息、流式输出都会滚下去，用户往上翻历史时则完全不打扰。
@@ -238,11 +287,65 @@ fun FormulaAiScreen(state: AppState, formulaId: String, onBack: () -> Unit) {
             }
         }
 
+        // 待发附件
+        if (pending.isNotEmpty() || loadingFile) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (loadingFile) ToolPill("⏳ 正在读取…")
+                pending.forEach { a ->
+                    Surface(color = BrandSoft, shape = RoundedCornerShape(10.dp)) {
+                        Row(
+                            Modifier.padding(start = 8.dp, end = 4.dp, top = 5.dp, bottom = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                (if (a.isImage) "🖼 " else "📄 ") + a.name,
+                                fontSize = 12.sp,
+                                color = BrandDark,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 150.dp),
+                            )
+                            Spacer(Modifier.size(2.dp))
+                            Text(
+                                "✕",
+                                fontSize = 12.sp,
+                                color = Ink3,
+                                modifier = Modifier
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = ripple(),
+                                    ) { pending.remove(a) }
+                                    .padding(horizontal = 5.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         // 输入区
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).navigationBarsPadding().imePadding(),
             verticalAlignment = Alignment.Bottom,
         ) {
+            Surface(
+                color = if (pending.isNotEmpty()) BrandSoft else SoftBg,
+                shape = CircleShape,
+                modifier = Modifier.size(46.dp).clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = ripple(),
+                ) { attachSheet = true },
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text("＋", fontSize = 22.sp, color = if (pending.isNotEmpty()) Brand else Ink2)
+                }
+            }
+            Spacer(Modifier.size(8.dp))
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
@@ -255,7 +358,7 @@ fun FormulaAiScreen(state: AppState, formulaId: String, onBack: () -> Unit) {
                 colors = fieldColors(),
             )
             Spacer(Modifier.size(8.dp))
-            val canSend = input.isNotBlank() && !s.busy && ai.ready
+            val canSend = (input.isNotBlank() || pending.isNotEmpty()) && !s.busy && ai.ready
             Surface(
                 color = if (s.busy) Danger else if (canSend) Brand else SoftBg,
                 shape = CircleShape,
@@ -267,8 +370,13 @@ fun FormulaAiScreen(state: AppState, formulaId: String, onBack: () -> Unit) {
                         s.busy -> AiSession.stop(formulaId)
                         canSend -> {
                             follow.value = true
-                            AiSession.send(formulaId, input, ai)
+                            // 文本类附件（txt/docx）直接拼进正文；图片走多模态 image_url
+                            val extra = pending.filter { !it.isImage }
+                                .joinToString("\n\n") { "【附件：${it.name}】\n${it.text}" }
+                            val body = listOf(input.trim(), extra).filter { it.isNotBlank() }.joinToString("\n\n")
+                            AiSession.send(formulaId, body, ai, pending.filter { it.isImage }.map { it.dataUrl })
                             input = ""
+                            pending.clear()
                             scope.launch { listState.scrollToBottom(animate = true) }
                         }
                     }
@@ -295,7 +403,98 @@ fun FormulaAiScreen(state: AppState, formulaId: String, onBack: () -> Unit) {
             },
         )
     }
+
+    if (attachSheet) {
+        AlertDialog(
+            onDismissRequest = { attachSheet = false },
+            title = { Text("添加附件", style = MaterialTheme.typography.titleMedium) },
+            text = {
+                Column {
+                    AttachOption("📷", "拍照", "直接拍配料单、检测报告") {
+                        attachSheet = false
+                        val uri = newPhotoUri(ctx)
+                        if (uri == null) {
+                            Toast.makeText(ctx, "建不了临时文件", Toast.LENGTH_SHORT).show()
+                        } else {
+                            cameraUri = uri
+                            takePhoto.launch(uri)
+                        }
+                    }
+                    AttachOption("🖼", "相册", "从相册选图片") {
+                        attachSheet = false
+                        pickImage.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                            )
+                        )
+                    }
+                    AttachOption("📄", "文件", "PDF / Word / txt / csv") {
+                        attachSheet = false
+                        pickFile.launch(Attach.MIME_TYPES)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { attachSheet = false }) { Text("取消", color = Ink2) }
+            },
+        )
+    }
 }
+
+@Composable
+private fun AttachOption(emoji: String, title: String, sub: String, onClick: () -> Unit) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = ripple(), onClick = onClick)
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(emoji, fontSize = 20.sp)
+        Spacer(Modifier.size(12.dp))
+        Column {
+            Text(title, fontSize = 15.sp, color = Ink, fontWeight = FontWeight.Medium)
+            Text(sub, fontSize = 12.sp, color = Ink3)
+        }
+    }
+}
+
+/** 拍照写到这里：cacheDir/exports 已经在 file_paths.xml 里授权过了 */
+private fun newPhotoUri(ctx: Context): Uri? = runCatching {
+    val dir = java.io.File(ctx.cacheDir, "exports").apply { mkdirs() }
+    val file = java.io.File(dir, "photo_" + System.currentTimeMillis() + ".jpg")
+    androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", file)
+}.getOrNull()
+
+/** 用户消息里的图片缩略图 */
+@Composable
+private fun AttachmentStrip(urls: List<String>) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        urls.take(4).forEach { url ->
+            val bmp = remember(url) { decodeDataUrl(url) }
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp,
+                    contentDescription = "附件图片",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(86.dp).clip(RoundedCornerShape(10.dp)),
+                )
+            } else {
+                Box(
+                    Modifier.size(86.dp).clip(RoundedCornerShape(10.dp)).background(SoftBg),
+                    contentAlignment = Alignment.Center,
+                ) { Text("🖼", fontSize = 18.sp) }
+            }
+        }
+    }
+}
+
+private fun decodeDataUrl(url: String): ImageBitmap? = runCatching {
+    val b64 = url.substringAfter("base64,", "")
+    if (b64.isEmpty()) return null
+    val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
+    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+}.getOrNull()
 
 /** 一条消息：气泡 + 思考卡 + 工具痕迹 + 操作行 */
 @Composable
@@ -310,8 +509,14 @@ private fun MessageItem(
 ) {
     when (m.role) {
         "user" -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
-            Surface(color = Brand, shape = BubbleShape, modifier = Modifier.widthIn(max = 300.dp)) {
-                Text(m.content, color = Color.White, fontSize = 15.sp, lineHeight = 22.sp, modifier = Modifier.padding(12.dp, 9.dp))
+            if (m.images.isNotEmpty()) {
+                AttachmentStrip(m.images)
+                Spacer(Modifier.height(6.dp))
+            }
+            if (m.content.isNotBlank()) {
+                Surface(color = Brand, shape = BubbleShape, modifier = Modifier.widthIn(max = 300.dp)) {
+                    Text(m.content, color = Color.White, fontSize = 15.sp, lineHeight = 22.sp, modifier = Modifier.padding(12.dp, 9.dp))
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 3.dp, end = 2.dp)) {
                 MiniAction("复制") { onCopy(m.content) }

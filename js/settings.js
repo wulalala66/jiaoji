@@ -8,7 +8,7 @@ import { actions, getState, legacyBackup } from "./store.js";
 import { confirmDialog, copyText, toast } from "./ui.js";
 import { fetchModels, normalizeBase } from "./ai.js";
 
-const VERSION = "3.0.2";
+const VERSION = "3.0.3";
 
 export function renderSettings(root, { navigate }) {
   const state = getState();
