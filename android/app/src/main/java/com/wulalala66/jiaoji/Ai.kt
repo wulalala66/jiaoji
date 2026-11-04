@@ -51,8 +51,25 @@ object Ai {
 
     // ---------------------------------------------------------------- 模型列表
 
+    /**
+     * 把用户填的地址整理成可用的 base：
+     *  - 没写协议就补 http://（局域网/内网中转常见）
+     *  - 去掉末尾多余的 /
+     *  - 末尾只写了 .../v1/chat/completions 这种，回退到 .../v1
+     */
+    fun normalizeBase(raw: String): String {
+        var u = raw.trim()
+        if (u.isEmpty()) return u
+        if (!u.startsWith("http://", true) && !u.startsWith("https://", true)) u = "http://$u"
+        u = u.trimEnd('/')
+        listOf("/chat/completions", "/completions", "/models").forEach { tail ->
+            if (u.endsWith(tail, true)) u = u.dropLast(tail.length)
+        }
+        return u.trimEnd('/')
+    }
+
     fun fetchModels(settings: AiSettings): List<String> {
-        val base = settings.baseUrl.trimEnd('/')
+        val base = normalizeBase(settings.baseUrl)
         if (base.isBlank()) throw AiException("还没填 API 地址")
         val conn = open("$base/models", settings, "GET")
         val body = readAll(conn)
@@ -305,7 +322,7 @@ object Ai {
             }
             if (withEffort) put("reasoning_effort", settings.thinking)
         }
-        val conn = open("${settings.baseUrl.trimEnd('/')}/chat/completions", settings, "POST")
+        val conn = open("${normalizeBase(settings.baseUrl)}/chat/completions", settings, "POST")
         conn.doOutput = true
         conn.setRequestProperty("Content-Type", "application/json")
         conn.outputStream.use { it.write(body.toString().toByteArray()) }

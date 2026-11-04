@@ -75,7 +75,8 @@ fun SettingsScreen(
     var showClear by remember { mutableStateOf(false) }
 
     val baseState = rememberLocalText(ai.baseUrl, "ai-base") { v ->
-        Repo.I.updateSettings { it.copy(ai = it.ai.copy(baseUrl = v.trim())) }
+        // 没写 http:// 的自动补上，否则 Android 会拦明文请求
+        Repo.I.updateSettings { it.copy(ai = it.ai.copy(baseUrl = Ai.normalizeBase(v))) }
     }
     val keyState = rememberLocalText(ai.apiKey, "ai-key") { v ->
         Repo.I.updateSettings { it.copy(ai = it.ai.copy(apiKey = v.trim())) }
