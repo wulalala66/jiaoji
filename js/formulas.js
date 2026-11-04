@@ -248,13 +248,13 @@ export function renderFormulaEditor(root, formulaId, { navigate }) {
       ),
       el(
         "div",
-        { class: "item-line" },
-        el("label", { class: "inline-field" }, el("span", null, "克"), gramsInput),
-        el("label", { class: "inline-field" }, el("span", null, "%"), pctInput),
+        { class: "item-num-line" },
+        el("label", { class: "field" }, el("span", { class: "field-label" }, "克数 g"), gramsInput),
+        el("label", { class: "field" }, el("span", { class: "field-label" }, "百分比 %"), pctInput),
         el(
           "button",
           {
-            class: "btn btn-soft btn-xs",
+            class: "btn btn-soft btn-xs fill-btn",
             type: "button",
             title: "把剩余百分比补到这一行",
             onclick: () => {

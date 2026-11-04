@@ -44,6 +44,13 @@ function p(type, description) {
 
 const KNOWN = new Set(TOOL_DEFS.map((t) => t.function.name));
 
+/**
+ * 「帮我改」按钮发的话：模型经常只在回复里描述改法、不真的调工具，
+ * 点这个按钮就是把「说的」变成「做的」。
+ */
+export const APPLY_PROMPT =
+  "别只描述。按你刚才说的，直接用工具改到配方里，改完用一两句话告诉我改了什么、现在合计多少。";
+
 export function toolLabel(name) {
   return (
     {
@@ -824,9 +831,26 @@ function inline(text) {
 export function renderAiChat(root, formulaId, { navigate }) {
   const s = sessionOf(formulaId);
   const f = getState().formulas.find((x) => x.id === formulaId);
-  const ai = getState().settings.ai;
+
+  document.body.classList.add("chat-mode");
 
   const list = el("div", { class: "chat-list" });
+  const jump = el(
+    "button",
+    {
+      class: "jump-bottom",
+      type: "button",
+      hidden: "true",
+      "aria-label": "回到底部",
+      onclick: () => {
+        pinned = true;
+        list.scrollTop = list.scrollHeight;
+        jump.hidden = true;
+      },
+    },
+    "↓ 最新"
+  );
+
   const input = el("textarea", {
     class: "chat-input",
     rows: "1",
@@ -843,18 +867,20 @@ export function renderAiChat(root, formulaId, { navigate }) {
     },
   });
 
-  const sendBtn = el("button", { class: "btn btn-primary chat-send", type: "button", onclick: () => submit() }, "发送");
+  const sendBtn = el("button", { class: "btn btn-primary chat-send", type: "button" }, "发送");
 
   function submit() {
     const text = input.value.trim();
     if (!text) return;
-    if (!ai.baseUrl || !ai.apiKey || !ai.model) {
+    const cur = getState().settings.ai;
+    if (!cur.baseUrl || !cur.apiKey || !cur.model) {
       toast("先去设置里配好 AI", "warn");
       navigate("#/settings");
       return;
     }
     input.value = "";
     input.style.height = "auto";
+    pinned = true;
     send(formulaId, text);
   }
 
@@ -863,28 +889,65 @@ export function renderAiChat(root, formulaId, { navigate }) {
       "header",
       { class: "page-head chat-head" },
       el("button", { class: "icon-btn", type: "button", "aria-label": "返回", onclick: () => navigate(`#/f/${formulaId}`) }, "←"),
+      el("div", { class: "grow" }, el("h1", { class: "ellipsis" }, "AI 助手"), el("p", { class: "page-sub ellipsis" }, f?.name || "配方")),
       el(
-        "div",
-        { class: "grow" },
-        el("h1", { class: "ellipsis" }, "AI 助手"),
-        el("p", { class: "page-sub ellipsis" }, f?.name || "配方")
-      ),
-      el("button", { class: "btn btn-ghost btn-sm", type: "button", onclick: () => clearSession(formulaId) }, "清空")
+        "button",
+        {
+          class: "btn btn-ghost btn-sm",
+          type: "button",
+          onclick: () => {
+            if (!s.messages.length) return;
+            clearSession(formulaId);
+          },
+        },
+        "清空"
+      )
     )
   );
 
-  root.appendChild(list);
-  root.appendChild(
-    el(
+  root.appendChild(el("div", { class: "chat-stage" }, list, jump));
+  root.appendChild(el("div", { class: "chat-composer" }, input, sendBtn));
+
+  // ---------------------------------------------------------------- 滚动
+  // 贴底才跟随：用户往上翻历史时不被新 token 拽回去，
+  // 这是主流对话 App（ChatGPT / Claude / LobeChat）的通用做法。
+  let pinned = true;
+  const NEAR = 72;
+
+  list.addEventListener(
+    "scroll",
+    () => {
+      const gap = list.scrollHeight - list.scrollTop - list.clientHeight;
+      pinned = gap < NEAR;
+      jump.hidden = pinned || !s.busy;
+    },
+    { passive: true }
+  );
+
+  const scrollToBottom = () => {
+    if (!pinned) return;
+    list.scrollTop = list.scrollHeight;
+  };
+
+  // ---------------------------------------------------------------- 渲染
+
+  let signature = "";
+  let streamNode = null;
+  let statusNode = null;
+
+  const bubble = (cls, ...kids) => el("div", { class: `bubble ${cls}` }, ...kids);
+
+  function toolLine(names) {
+    return el(
       "div",
-      { class: "chat-composer" },
-      input,
-      sendBtn
-    )
-  );
+      { class: "tool-line" },
+      names.map((n) => el("span", { class: "tool-pill" }, "🔧 " + toolLabel(n)))
+    );
+  }
 
-  function draw() {
+  function fullRender() {
     clear(list);
+
     if (!s.messages.length && !s.busy) {
       list.appendChild(
         el(
@@ -899,58 +962,52 @@ export function renderAiChat(root, formulaId, { navigate }) {
               "合计到 100% 了吗？没到就补上",
               "D1NP 提到 30%，其余按比例缩小",
               "帮我看看这个配比有什么问题",
-            ].map((t) =>
-              el("button", { class: "chip-btn", type: "button", onclick: () => send(formulaId, t) }, t)
-            )
+            ].map((t) => el("button", { class: "chip-btn", type: "button", onclick: () => send(formulaId, t) }, t))
           )
         )
       );
     }
 
-    for (const m of s.messages) {
+    s.messages.forEach((m, index) => {
       if (m.role === "user") {
-        list.appendChild(el("div", { class: "bubble bubble-user" }, m.content));
-      } else if (m.role === "assistant") {
-        if (m.toolCalls?.length) {
-          list.appendChild(
-            el(
-              "div",
-              { class: "tool-line" },
-              m.toolCalls.map((c) => el("span", { class: "tool-pill" }, "🔧 " + toolLabel(c.name)))
-            )
-          );
-        }
+        list.appendChild(bubble("bubble-user", m.content));
+        return;
+      }
+      if (m.role === "assistant") {
+        if (m.toolCalls?.length) list.appendChild(toolLine(m.toolCalls.map((c) => c.name)));
         if (m.thinking) {
           list.appendChild(
             el(
               "details",
               { class: "think-card" },
-              el("summary", null, `思考过程 · ${(m.thinking.length / 1000).toFixed(1)}k 字`),
+              el("summary", null, "思考过程 · " + m.thinking.length + " 字"),
               el("div", { class: "think-body" }, m.thinking)
             )
           );
         }
-        if (m.content) list.appendChild(el("div", { class: "bubble bubble-ai" }, renderRich(m.content)));
+        if (m.content) {
+          list.appendChild(bubble("bubble-ai", renderRich(m.content)));
+          const isLast = index === s.messages.length - 1;
+          const acts = el(
+            "div",
+            { class: "bubble-acts" },
+            el("button", { class: "chip-btn", type: "button", onclick: () => copyText(m.content).then((ok) => toast(ok ? "已复制" : "复制失败", ok ? "ok" : "warn")) }, "复制"),
+            // 模型只"说"没"做"的时候，给它一个一键落地的按钮
+            !m.toolCalls?.length
+              ? el("button", { class: "chip-btn on", type: "button", onclick: () => send(formulaId, APPLY_PROMPT) }, "帮我改")
+              : null,
+            isLast && !s.busy ? el("button", { class: "chip-btn", type: "button", onclick: () => regenerate(formulaId) }, "重新生成") : null
+          );
+          list.appendChild(acts);
+        }
+        return;
       }
-    }
-
-    if (s.busy) {
-      if (s.think) {
+      if (m.role === "tool") {
         list.appendChild(
-          el(
-            "details",
-            { class: "think-card live", open: "" },
-            el("summary", null, "正在思考…"),
-            el("div", { class: "think-body" }, s.think)
-          )
+          el("div", { class: "tool-line" }, el("span", { class: "tool-pill" }, "✅ " + (m.name ? toolLabel(m.name) : "完成")))
         );
       }
-      if (s.status) list.appendChild(el("div", { class: "tool-line" }, el("span", { class: "tool-pill live" }, "⏳ " + s.status)));
-      if (s.stream) list.appendChild(el("div", { class: "bubble bubble-ai" }, renderRich(s.stream)));
-      if (!s.stream && !s.think) {
-        list.appendChild(el("div", { class: "typing" }, el("span"), el("span"), el("span")));
-      }
-    }
+    });
 
     if (s.error && !s.busy) {
       list.appendChild(
@@ -958,32 +1015,83 @@ export function renderAiChat(root, formulaId, { navigate }) {
           "div",
           { class: "chat-error" },
           el("div", null, s.error),
-          el(
-            "button",
-            { class: "btn btn-soft btn-sm", type: "button", onclick: () => regenerate(formulaId) },
-            "重试"
-          )
+          el("button", { class: "btn btn-soft btn-sm", type: "button", onclick: () => regenerate(formulaId) }, "重试")
         )
       );
     }
+
+    // 流式占位：先把节点建好，之后只改里面的文字，不整段重建
+    if (s.busy) {
+      const details = el(
+        "details",
+        { class: "think-card live", hidden: "true" },
+        el("summary", null, "思考中…"),
+        el("div", { class: "think-body" })
+      );
+      list.appendChild(details);
+
+      statusNode = el("div", { class: "tool-line" }, el("span", { class: "tool-pill live" }, "⏳ 思考中…"));
+      list.appendChild(statusNode);
+
+      streamNode = bubble("bubble-ai");
+      streamNode.hidden = true;
+      list.appendChild(streamNode);
+
+      list.appendChild(el("div", { class: "typing" }, el("span"), el("span"), el("span")));
+    } else {
+      streamNode = null;
+      statusNode = null;
+    }
+  }
+
+  function updateLive() {
+    if (!s.busy) return;
+    const details = list.querySelector(".think-card.live");
+    if (details) {
+      const body = details.querySelector(".think-body");
+      if (s.think) {
+        details.hidden = false;
+        if (body.textContent !== s.think) body.textContent = s.think;
+      } else {
+        details.hidden = true;
+      }
+    }
+    if (statusNode) {
+      const pill = statusNode.querySelector(".tool-pill");
+      const text = "⏳ " + (s.status || "思考中…");
+      if (pill.textContent !== text) pill.textContent = text;
+    }
+    if (streamNode) {
+      if (s.stream) {
+        streamNode.replaceChildren(renderRich(s.stream));
+        list.querySelector(".typing")?.remove();
+      }
+      streamNode.hidden = !s.stream;
+    }
+  }
+
+  function draw() {
+    const next = [s.messages.length, s.busy, s.error, s.status].join("|");
+    if (next !== signature) {
+      signature = next;
+      fullRender();
+    }
+    updateLive();
 
     sendBtn.textContent = s.busy ? "停止" : "发送";
     sendBtn.classList.toggle("btn-danger", s.busy);
     sendBtn.classList.toggle("btn-primary", !s.busy);
     sendBtn.onclick = s.busy ? () => stop(formulaId) : () => submit();
 
-    requestAnimationFrame(() => {
-      list.scrollTop = list.scrollHeight;
-    });
+    jump.hidden = pinned || !s.busy;
+    requestAnimationFrame(scrollToBottom);
   }
 
   draw();
   const off = subscribeSession(s, draw);
-  const offStore = subscribe(() => {
-    // 工具改完配方，气泡里的数字不重绘也没关系；这里只在会话被清空时兜底
-  });
+
   return () => {
     off();
-    offStore();
+    document.body.classList.remove("chat-mode");
   };
 }

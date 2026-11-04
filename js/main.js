@@ -93,7 +93,11 @@ function render() {
 
 function drawTabs(route) {
   const key = route.name === "f" ? "f" : route.name;
+  const isChat = route.name === "f" && route.args[1] === "ai";
+  // 对话页是全屏的，底部导航让位给输入框（安卓版也是这么做的）
+  document.body.classList.toggle("chat-mode", isChat);
   clear(tabbar);
+  if (isChat) return;
   for (const t of TABS) {
     const on = t.match.includes(key);
     tabbar.appendChild(

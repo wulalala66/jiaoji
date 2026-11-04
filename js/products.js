@@ -88,17 +88,30 @@ export function renderProducts(root) {
 
       const rows = el("div", { class: "bake-rows" });
       const addRow = (temp = "140", minutes = "30") => {
-        const t = el("input", { class: "input num", type: "text", inputmode: "numeric", value: temp, "aria-label": "温度" });
-        const m = el("input", { class: "input num", type: "text", inputmode: "numeric", value: minutes, "aria-label": "分钟" });
+        const t = el("input", {
+          class: "input num",
+          type: "text",
+          inputmode: "numeric",
+          value: temp,
+          "aria-label": "烘烤温度，摄氏度",
+        });
+        const m = el("input", {
+          class: "input num",
+          type: "text",
+          inputmode: "numeric",
+          value: minutes,
+          "aria-label": "烘烤时间，分钟",
+        });
+        // 标签在上、输入框在下：手机上框子才不会被挤扁
         const row = el(
           "div",
           { class: "bake-row" },
-          el("label", { class: "inline-field" }, el("span", null, "℃"), t),
-          el("label", { class: "inline-field" }, el("span", null, "分钟"), m),
+          el("label", { class: "field" }, el("span", { class: "field-label" }, "温度 ℃"), t),
+          el("label", { class: "field" }, el("span", { class: "field-label" }, "时间 分钟"), m),
           el(
             "button",
             {
-              class: "icon-btn danger",
+              class: "icon-btn danger bake-del",
               type: "button",
               "aria-label": "删掉这条",
               onclick: () => {

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
@@ -28,10 +30,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -301,4 +303,46 @@ fun rememberLocalText(
         onDispose { if (st.value != initial) latest.value(st.value) }
     }
     return st
+}
+
+// ============================================================
+//  聊天列表：跟随底部
+//  参考主流对话 App（ChatGPT / Claude / LobeChat）的通用做法：
+//    · 默认贴底跟随，新消息和流式输出都自动滚下去；
+//    · 用户手指一拖就立刻取消跟随，往上翻历史不被打断；
+//    · 拖回底部、或点「回到底部」，重新开始跟随。
+//  这样就不会出现「想往上翻，被一条新 token 拽回底部」的情况。
+// ============================================================
+
+@Composable
+fun rememberFollowBottom(listState: LazyListState): MutableState<Boolean> {
+    val follow = remember { mutableStateOf(true) }
+
+    val dragging by listState.interactionSource.collectIsDraggedAsState()
+    LaunchedEffect(dragging) {
+        if (dragging) follow.value = false
+    }
+
+    // 手指松开、惯性也停下来之后，看是不是又停在底部了
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) return@LaunchedEffect
+        val info = listState.layoutInfo
+        val last = info.visibleItemsInfo.lastOrNull() ?: return@LaunchedEffect
+        val atBottom = last.index >= info.totalItemsCount - 1 &&
+            last.offset + last.size <= info.viewportEndOffset + 24
+        if (atBottom) follow.value = true
+    }
+
+    return follow
+}
+
+/**
+ * 滚到内容最底部。
+ * 索引传 totalItemsCount 会被内部 coerce 到末尾，效果就是「贴底」；
+ * 传 lastIndex 反而会把最后一条的顶部对齐到屏幕顶部，长消息会看不全。
+ */
+suspend fun LazyListState.scrollToBottom(animate: Boolean = false) {
+    val count = layoutInfo.totalItemsCount
+    if (count <= 0) return
+    if (animate) animateScrollToItem(count) else scrollToItem(count)
 }

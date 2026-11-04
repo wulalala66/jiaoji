@@ -65,8 +65,20 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 
 private val BubbleShape = RoundedCornerShape(14.dp)
+
+/**
+ * 「帮我改」发出去的那句话。
+ * 模型很常见的毛病是：把改法描述得头头是道，却一个工具都没调 ——
+ * 用户以为改好了，回去一看配方没动。这个按钮就是把「说的」变成「做的」。
+ */
+private const val APPLY_PROMPT =
+    "别只描述。按你刚才说的，直接用工具改到配方里，改完用一两句话告诉我改了什么、现在合计多少。"
 
 /** 配料 AI 对话页（右上角「问 AI」进来的那个） */
 @Composable
@@ -78,10 +90,19 @@ fun FormulaAiScreen(state: AppState, formulaId: String, onBack: () -> Unit) {
     var input by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<Pair<Int, String>?>(null) }
     val listState = rememberLazyListState()
+    val follow = rememberFollowBottom(listState)
+    val scope = rememberCoroutineScope()
 
+    // 只有「本来就贴着底部」的时候才跟着滚：
+    // 新消息、流式输出都会滚下去，用户往上翻历史时则完全不打扰。
     LaunchedEffect(s.msgs.size, s.stream.length, s.think.length, s.status) {
-        val n = listState.layoutInfo.totalItemsCount
-        if (n > 0) listState.animateScrollToItem(n - 1)
+        if (follow.value) listState.scrollToBottom()
+    }
+    // 键盘弹出/收起会改变可视高度，这时也要重新贴底
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.viewportEndOffset }
+            .distinctUntilChanged()
+            .collect { if (follow.value) listState.scrollToBottom() }
     }
 
     Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -116,76 +137,104 @@ fun FormulaAiScreen(state: AppState, formulaId: String, onBack: () -> Unit) {
             }
         }
 
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            state = listState,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(14.dp, 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            if (s.msgs.isEmpty() && !s.live) {
-                item {
-                    Column {
-                        Text("可以直接让它改配方，改完这里就能看到合计变化。", fontSize = 13.sp, color = Ink3)
-                        Spacer(Modifier.height(10.dp))
-                        val tips = listOf(
-                            "这个配方有什么问题",
-                            "补到 100%",
-                            "怎么把粘度降下来",
-                            "查一下 D-80 的供应商",
-                        )
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            tips.forEach { t ->
-                                Surface(
-                                    color = SoftBg,
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = ripple(),
+        Box(Modifier.weight(1f).fillMaxWidth()) {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(14.dp, 8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                if (s.msgs.isEmpty() && !s.live) {
+                    item {
+                        Column {
+                            Text("可以直接让它改配方，改完这里就能看到合计变化。", fontSize = 13.sp, color = Ink3)
+                            Spacer(Modifier.height(10.dp))
+                            val tips = listOf(
+                                "这个配方有什么问题",
+                                "补到 100%",
+                                "怎么把粘度降下来",
+                                "查一下 D-80 的供应商",
+                            )
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                tips.forEach { t ->
+                                    Surface(
+                                        color = SoftBg,
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = ripple(),
+                                        ) {
+                                            AiSession.send(formulaId, t, ai)
+                                        },
                                     ) {
-                                        AiSession.send(formulaId, t, ai)
-                                    },
-                                ) {
-                                    Text(t, fontSize = 14.sp, color = Ink, modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp))
+                                        Text(t, fontSize = 14.sp, color = Ink, modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp))
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            itemsIndexed(s.msgs) { index, m ->
-                MessageItem(
-                    m = m,
-                    isLast = index == s.msgs.lastIndex,
-                    busy = s.busy,
-                    onCopy = { copyText(ctx, it) },
-                    onRegenerate = { AiSession.regenerate(formulaId, ai) },
-                    onEdit = { editing = index to it },
-                )
-            }
+                itemsIndexed(s.msgs) { index, m ->
+                    MessageItem(
+                        m = m,
+                        isLast = index == s.msgs.lastIndex,
+                        busy = s.busy,
+                        onCopy = { copyText(ctx, it) },
+                        onRegenerate = { AiSession.regenerate(formulaId, ai) },
+                        onEdit = { editing = index to it },
+                        onApply = {
+                            follow.value = true
+                            AiSession.send(formulaId, APPLY_PROMPT, ai)
+                        },
+                    )
+                }
 
-            if (s.live) {
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (s.think.isNotEmpty() || s.busy) {
-                            ReasoningCard(
-                                text = s.think,
-                                live = true,
-                                ms = System.currentTimeMillis() - s.startedAt,
-                            )
-                        }
-                        if (s.stream.isNotBlank()) {
-                            Surface(color = CardBg, shape = BubbleShape, modifier = Modifier.widthIn(max = 330.dp)) {
-                                Text(s.stream, color = Ink, fontSize = 15.sp, lineHeight = 22.sp, modifier = Modifier.padding(13.dp, 10.dp))
+                if (s.live) {
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (s.think.isNotEmpty() || s.busy) {
+                                ReasoningCard(
+                                    text = s.think,
+                                    live = true,
+                                    ms = System.currentTimeMillis() - s.startedAt,
+                                )
                             }
+                            if (s.stream.isNotBlank()) {
+                                Surface(color = CardBg, shape = BubbleShape, modifier = Modifier.widthIn(max = 330.dp)) {
+                                    Text(richText(s.stream), color = Ink, fontSize = 15.sp, lineHeight = 22.sp, modifier = Modifier.padding(13.dp, 10.dp))
+                                }
+                            }
+                            if (s.status.isNotBlank()) ToolPill("⏳ " + s.status)
                         }
-                        if (s.status.isNotBlank()) ToolPill("⏳ " + s.status)
                     }
+                }
+
+                if (s.error.isNotBlank()) {
+                    item { ToolPill("⚠️ " + s.error) }
                 }
             }
 
-            if (s.error.isNotBlank()) {
-                item { ToolPill("⚠️ " + s.error) }
+            // 用户往上翻了：给一个明显的「回到底部」，而不是偷偷把他拽下去
+            if (!follow.value) {
+                Surface(
+                    onClick = {
+                        follow.value = true
+                        scope.launch { listState.scrollToBottom(animate = true) }
+                    },
+                    color = CardBg,
+                    shape = CircleShape,
+                    shadowElevation = 8.dp,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 12.dp),
+                ) {
+                    Text(
+                        "↓ 最新",
+                        fontSize = 13.sp,
+                        color = Brand,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    )
+                }
             }
         }
 
@@ -217,8 +266,10 @@ fun FormulaAiScreen(state: AppState, formulaId: String, onBack: () -> Unit) {
                     when {
                         s.busy -> AiSession.stop(formulaId)
                         canSend -> {
+                            follow.value = true
                             AiSession.send(formulaId, input, ai)
                             input = ""
+                            scope.launch { listState.scrollToBottom(animate = true) }
                         }
                     }
                 },
@@ -255,6 +306,7 @@ private fun MessageItem(
     onCopy: (String) -> Unit,
     onRegenerate: () -> Unit,
     onEdit: (String) -> Unit,
+    onApply: () -> Unit,
 ) {
     when (m.role) {
         "user" -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
@@ -274,12 +326,14 @@ private fun MessageItem(
             }
             if (m.content.isNotBlank()) {
                 Surface(color = CardBg, shape = BubbleShape, modifier = Modifier.widthIn(max = 330.dp)) {
-                    Text(m.content, color = Ink, fontSize = 15.sp, lineHeight = 22.sp, modifier = Modifier.padding(13.dp, 10.dp))
+                    Text(richText(m.content), color = Ink, fontSize = 15.sp, lineHeight = 22.sp, modifier = Modifier.padding(13.dp, 10.dp))
                 }
             }
             m.toolCalls.forEach { c -> ToolPill("🔧 " + AiTools.label(c.name)) }
             if (m.content.isNotBlank()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 3.dp, start = 2.dp)) {
+                    // 只说不做的时候，给一个一键落地
+                    if (m.toolCalls.isEmpty() && !busy) MiniAction("帮我改", Brand) { onApply() }
                     MiniAction("复制") { onCopy(m.content) }
                     if (isLast && !busy) MiniAction("重新生成") { onRegenerate() }
                 }
@@ -359,11 +413,11 @@ private fun rememberPulse(): Float {
 }
 
 @Composable
-private fun MiniAction(text: String, onClick: () -> Unit) {
+private fun MiniAction(text: String, color: Color = Ink3, onClick: () -> Unit) {
     Text(
         text = text,
         fontSize = 12.sp,
-        color = Ink3,
+        color = color,
         modifier = Modifier
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = ripple(), onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 4.dp),
@@ -455,11 +509,11 @@ fun AiAskCard(state: AppState, formulaId: String, onOpenChat: () -> Unit) {
         }
         if (s.stream.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
-            Text(s.stream, fontSize = 14.sp, color = Ink, lineHeight = 21.sp)
+            Text(richText(s.stream), fontSize = 14.sp, color = Ink, lineHeight = 21.sp)
         }
         if (answer.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
-            Text(answer, fontSize = 14.sp, color = Ink, lineHeight = 21.sp)
+            Text(richText(answer), fontSize = 14.sp, color = Ink, lineHeight = 21.sp)
             val think = s.msgs.lastOrNull { it.role == "assistant" }?.thinking.orEmpty()
             if (think.isNotBlank() && !s.live) {
                 Spacer(Modifier.height(8.dp))
@@ -474,6 +528,11 @@ fun AiAskCard(state: AppState, formulaId: String, onOpenChat: () -> Unit) {
             if (s.busy) {
                 MiniAction("停止") { AiSession.stop(id) }
             } else {
+                val changed = s.msgs.lastOrNull { it.role == "assistant" }?.toolCalls?.isNotEmpty() == true
+                // 只说不做的时候，把「说的」一键变成「做的」
+                if (answer.isNotBlank() && !changed) {
+                    MiniAction("帮我改", Brand) { AiSession.send(id, APPLY_PROMPT, ai) }
+                }
                 MiniAction("再问一次") { AiSession.regenerate(id, ai) }
                 if (answer.isNotBlank()) MiniAction("复制") { copyText(ctx, answer) }
                 MiniAction("清空") { AiSession.clear(id) }
