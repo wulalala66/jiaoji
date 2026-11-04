@@ -200,7 +200,7 @@ class AiToolsTest {
         val raw = "{\"name\":\"add_item\",\"arguments\":{\"formulaId\":\"" + f.id + "\",\"name\":\"新原料X\",\"percent\":3}}"
         val (_, calls) = Ai.extractCalls(raw)
         assertEquals(1, calls.size)
-        AiTools.run(s, calls[0].name, calls[0].args)
+        AiTools.run(calls[0].name, calls[0].args)
         val after = Repo.I.state.value.formulaOf(f.id)!!
         assertEquals(before + 1, after.items.size)
         assertTrue(after.items.any { it.name == "新原料X" })
