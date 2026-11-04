@@ -55,12 +55,14 @@ class ScreenshotTest {
     private fun shot(name: String, content: @Composable () -> Unit) {
         val dir = File("build/screenshots").apply { mkdirs() }
         try {
+            // 手动走时钟：waitForIdle 在有文本光标/动画时会一直不 idle
+            rule.mainClock.autoAdvance = false
             rule.setContent {
                 JiaoJiTheme {
                     Surface(color = Bg, modifier = Modifier.fillMaxSize()) { content() }
                 }
             }
-            rule.waitForIdle()
+            rule.mainClock.advanceTimeBy(400L)
             val bmp = rule.onRoot().captureToImage().asAndroidBitmap()
             FileOutputStream(File(dir, "$name.png")).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
         } catch (e: Throwable) {
