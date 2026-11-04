@@ -6,11 +6,19 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * 发给模型的消息格式：带图的消息必须是 OpenAI 的多模态数组，
  * 不带图的老格式（纯字符串 content）不能变 —— 大部分中转对数组格式的兼容性更差。
+ *
+ * 必须跑在 Robolectric 上：裸 JVM 里的 org.json 是 Android 的空壳实现，
+ * 所有方法都返回 null，测了等于没测。
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [33])
 class AiMessageJsonTest {
 
     @Test
@@ -55,7 +63,7 @@ class AiMessageJsonTest {
             content = "",
             toolCalls = listOf(AiCall("c1", "add_item", "{\"name\":\"A\"}")),
         ).toJson()
-        assertEquals(JSONObject.NULL, json.get("content"))
+        assertTrue("content 应该是 null", json.isNull("content"))
         val calls = json.getJSONArray("tool_calls")
         assertEquals(1, calls.length())
         assertEquals("add_item", calls.getJSONObject(0).getJSONObject("function").getString("name"))
