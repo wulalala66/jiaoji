@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -30,15 +29,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** 现在只有四个工具：比重 / 配料 / 条件表 / 设置 */
+/** 三个工具：比重 / 条件表 / 设置 */
 sealed interface Screen {
     data object Density : Screen
-    data object Formulas : Screen
     data object Products : Screen
     data object Settings : Screen
-    data object Diagnostics : Screen
-    data class FormulaEditor(val formulaId: String) : Screen
-    data class FormulaAi(val formulaId: String) : Screen
 }
 
 @Composable
@@ -46,61 +41,16 @@ fun Root() {
     val state by Repo.I.state.collectAsState()
     // 打开 App 先看比重计算器：这是每天用得最多的一屏
     var screen by remember { mutableStateOf<Screen>(Screen.Density) }
-    val history = remember { mutableStateListOf<Screen>() }
-
-    fun goTo(to: Screen) {
-        if (screen == to) return
-        history.add(screen)
-        if (history.size > 16) history.removeAt(0)
-        screen = to
-    }
-
-    fun goBack() {
-        screen = if (history.isNotEmpty()) history.removeAt(history.size - 1) else Screen.Density
-    }
-
-    fun goTab(to: Screen) {
-        history.clear()
-        screen = to
-    }
-
-    BackHandler(enabled = history.isNotEmpty()) { goBack() }
-
-    val showBar = screen !is Screen.FormulaAi
 
     Scaffold(
         containerColor = Bg,
-        bottomBar = {
-            if (showBar) BottomBar(
-                current = screen,
-                onSelect = { goTab(it) },
-            )
-        },
+        bottomBar = { BottomBar(current = screen, onSelect = { screen = it }) },
     ) { pad ->
         Box(Modifier.fillMaxSize().padding(pad)) {
-            when (val s = screen) {
+            when (screen) {
                 is Screen.Density -> DensityScreen()
-                is Screen.Formulas -> FormulasScreen(
-                    state = state,
-                    onOpen = { id -> goTo(Screen.FormulaEditor(id)) },
-                )
                 is Screen.Products -> ProductsScreen(state = state)
-                is Screen.Settings -> SettingsScreen(
-                    state = state,
-                    onOpenDiagnostics = { goTo(Screen.Diagnostics) },
-                )
-                is Screen.Diagnostics -> DiagnosticsScreen(state, onBack = { goBack() })
-                is Screen.FormulaEditor -> FormulaEditorScreen(
-                    state = state,
-                    formulaId = s.formulaId,
-                    onBack = { goBack() },
-                    onOpenAi = { goTo(Screen.FormulaAi(s.formulaId)) },
-                )
-                is Screen.FormulaAi -> FormulaAiScreen(
-                    state = state,
-                    formulaId = s.formulaId,
-                    onBack = { goBack() },
-                )
+                is Screen.Settings -> SettingsScreen(state = state)
             }
         }
     }
@@ -114,14 +64,8 @@ private fun BottomBar(current: Screen, onSelect: (Screen) -> Unit) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TabItem("⚖️", "比重", current is Screen.Density) { onSelect(Screen.Density) }
-            TabItem(
-                "🧪", "配料",
-                current is Screen.Formulas || current is Screen.FormulaEditor || current is Screen.FormulaAi,
-            ) { onSelect(Screen.Formulas) }
             TabItem("📋", "条件表", current is Screen.Products) { onSelect(Screen.Products) }
-            TabItem("⚙️", "设置", current is Screen.Settings || current is Screen.Diagnostics) {
-                onSelect(Screen.Settings)
-            }
+            TabItem("⚙️", "设置", current is Screen.Settings) { onSelect(Screen.Settings) }
         }
     }
 }
@@ -138,7 +82,11 @@ private fun androidx.compose.foundation.layout.RowScope.TabItem(
         modifier = Modifier.weight(1f).fillMaxHeight(),
         color = Color.Transparent,
     ) {
-        Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center) {
+        Column(
+            Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center,
+        ) {
             Text(emoji, fontSize = 15.sp)
             Text(
                 label,

@@ -2,7 +2,9 @@ package com.gluelab.jiaoji
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Box
@@ -52,12 +54,14 @@ import kotlinx.coroutines.delay
 //  通用组件：四个工具页共用的小积木，样式只在这里定义一次
 // ============================================================
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppCard(
     modifier: Modifier = Modifier,
     color: Color = CardBg,
     borderColor: Color = Line,
     onClick: (() -> Unit)? = null,
+    onLongClick: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
@@ -67,11 +71,20 @@ fun AppCard(
             .background(color)
             .border(1.dp, borderColor, MaterialTheme.shapes.medium)
             .then(
-                if (onClick != null) Modifier.clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = ripple(),
-                    onClick = onClick,
-                ) else Modifier
+                when {
+                    onClick != null && onLongClick != null -> Modifier.combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = ripple(),
+                        onClick = onClick,
+                        onLongClick = onLongClick,
+                    )
+                    onClick != null -> Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = ripple(),
+                        onClick = onClick,
+                    )
+                    else -> Modifier
+                }
             )
             .padding(14.dp),
         content = content,

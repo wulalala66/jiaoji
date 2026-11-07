@@ -27,15 +27,11 @@ class ScreensSmokeTest {
     fun seed() {
         val ctx = ApplicationProvider.getApplicationContext<android.app.Application>()
         Repo.I.init(ctx)
-        Repo.I.clearFormulas()
-        // 每个用例都自己造一条配方：不依赖上一条用例留下的数据
-        val id = Repo.I.addFormula("冒烟测试配方", 600.0)
-        Repo.I.addFormulaItem(id, "D1NP", 60.0)
-        Repo.I.addFormulaItem(id, "填料", 40.0)
+        Repo.I.stopTimer()
+        Repo.I.clearDensityLog()
+        Repo.I.importJson(Codec.encode(AppState(products = Defaults.products())))
         AppConfig.debounceMs = 0
     }
-
-    private fun firstFormulaId(): String = Repo.I.state.value.formulas.first().id
 
     private fun smoke(content: @Composable (AppState) -> Unit) {
         rule.setContent {
@@ -46,29 +42,13 @@ class ScreensSmokeTest {
     }
 
     @Test(timeout = 120_000)
-    fun formulasList() {
-        smoke { s -> FormulasScreen(s, onOpen = {}) }
+    fun densityEmpty() {
+        smoke { DensityScreen() }
     }
 
     @Test(timeout = 120_000)
-    fun formulaEditorWithAiCard() {
-        val id = firstFormulaId()
-        smoke { s -> FormulaEditorScreen(s, id, onBack = {}, onOpenAi = {}) }
-    }
-
-    @Test(timeout = 120_000)
-    fun formulaAiNotConfigured() {
-        val id = firstFormulaId()
-        smoke { s -> FormulaAiScreen(s, id, onBack = {}) }
-    }
-
-    @Test(timeout = 120_000)
-    fun diagnostics() {
-        smoke { s -> DiagnosticsScreen(s, onBack = {}) }
-    }
-
-    @Test(timeout = 120_000)
-    fun density() {
+    fun densityWithHistory() {
+        Repo.I.addDensityRecord(2.9, 1.82, 4.42, 2.26, 4.38, 2.26)
         smoke { DensityScreen() }
     }
 
@@ -78,8 +58,14 @@ class ScreensSmokeTest {
     }
 
     @Test(timeout = 120_000)
+    fun productsWithRunningTimer() {
+        Repo.I.startTimer("安徽万安", 170, 20)
+        smoke { s -> ProductsScreen(s) }
+    }
+
+    @Test(timeout = 120_000)
     fun settings() {
-        smoke { s -> SettingsScreen(s, onOpenDiagnostics = {}) }
+        smoke { s -> SettingsScreen(s) }
     }
 
     @Test(timeout = 120_000)

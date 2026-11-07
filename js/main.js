@@ -5,10 +5,8 @@
 import { el, $, clear } from "./utils.js";
 import { initStore } from "./store.js";
 import { renderDensity } from "./density.js";
-import { renderFormulas, renderFormulaEditor } from "./formulas.js";
 import { renderProducts } from "./products.js";
 import { renderSettings } from "./settings.js";
-import { renderAiChat } from "./ai.js";
 import { closeSheet, toast } from "./ui.js";
 
 const view = $("#view");
@@ -19,7 +17,6 @@ let currentRoute = "";
 
 const TABS = [
   { hash: "#/density", icon: "⚖️", label: "比重", match: ["density"] },
-  { hash: "#/formulas", icon: "🧪", label: "配料", match: ["formulas", "f"] },
   { hash: "#/products", icon: "📋", label: "条件表", match: ["products"] },
   { hash: "#/settings", icon: "⚙️", label: "设置", match: ["settings"] },
 ];
@@ -56,27 +53,13 @@ function render() {
 
   try {
     switch (route.name) {
-      case "density":
-        renderDensity(root);
-        break;
-      case "f": {
-        const id = route.args[0] || "";
-        if (route.args[1] === "ai") {
-          cleanup = renderAiChat(root, id, { navigate });
-        } else {
-          renderFormulaEditor(root, id, { navigate });
-        }
-        break;
-      }
       case "products":
-        renderProducts(root);
+        cleanup = renderProducts(root);
         break;
       case "settings":
         renderSettings(root, { navigate });
         break;
-      case "formulas":
-        renderFormulas(root, { navigate });
-        break;
+      case "density":
       default:
         renderDensity(root);
         break;
@@ -95,12 +78,8 @@ function render() {
 }
 
 function drawTabs(route) {
-  const key = route.name === "f" ? "f" : route.name;
-  const isChat = route.name === "f" && route.args[1] === "ai";
-  // 对话页是全屏的，底部导航让位给输入框（安卓版也是这么做的）
-  document.body.classList.toggle("chat-mode", isChat);
+  const key = route.name;
   clear(tabbar);
-  if (isChat) return;
   for (const t of TABS) {
     const on = t.match.includes(key);
     tabbar.appendChild(

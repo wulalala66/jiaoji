@@ -37,84 +37,23 @@ export function defaultProducts() {
     id,
     name,
     bakes: bakes.map(([temp, minutes]) => ({ temp, minutes })),
-    // 电泳板：每块单独记新旧和用途
-    plates: (plates || []).map((pl, i) => ({
-      id: `pl_${id}_${i}`,
-      fresh: !!pl.fresh,
-      note: pl.note || "",
-    })),
+    plates: (plates || []).map((pl, i) => ({ id: `pl_${id}_${i}`, fresh: !!pl.fresh, note: pl.note || "" })),
   }));
 }
 
-export function defaultFormulas() {
-  return [
-    {
-      id: "f_demo",
-      name: "底涂胶 A 料（示例）",
-      totalG: 600,
-      note: "",
-      purpose: "示例：可以改，也可以直接删",
-      cure: "140*30",
-      items: [
-        { id: "fi_demo1", name: "D1NP", percent: 26.33 },
-        { id: "fi_demo2", name: "碳酸钙", percent: 18 },
-        { id: "fi_demo3", name: "增塑剂", percent: 12.5 },
-        { id: "fi_demo4", name: "炭黑", percent: 3.17 },
-        { id: "fi_demo5", name: "填料 A", percent: 40 },
-      ],
-    },
-  ];
-}
-
-export function defaultAi() {
-  return {
-    baseUrl: "",
-    apiKey: "",
-    model: "",
-    thinking: "",
-    compress: true,
-    liveComment: true,
-    systemPrompt: "",
-  };
-}
-
 export function defaultState() {
-  return {
-    settings: { ai: defaultAi() },
-    products: defaultProducts(),
-    formulas: defaultFormulas(),
-  };
+  return { products: defaultProducts(), densityLog: [], timer: null };
 }
 
 // ---------------------------------------------------------------- 编解码
 
 const str = (v, fallback = "") => (typeof v === "string" ? v : fallback);
-const positive = (v, fallback) => {
-  const n = num(v);
-  return n !== null && n > 0 ? n : fallback;
-};
 
-/** 把外部 JSON（本机旧数据 / 安卓备份 / 用户导入的文件）整理成内部结构 */
 export function decode(raw) {
   const src = typeof raw === "string" ? JSON.parse(raw) : raw;
   if (!src || typeof src !== "object" || Array.isArray(src)) throw new Error("不是有效的备份文件");
 
-  const aiSrc = src?.settings?.ai ?? {};
-  const state = {
-    settings: {
-      ai: {
-        baseUrl: str(aiSrc.baseUrl).trim(),
-        apiKey: str(aiSrc.apiKey).trim(),
-        model: str(aiSrc.model).trim(),
-        thinking: ["", "low", "medium", "high"].includes(aiSrc.thinking) ? aiSrc.thinking : "",
-        compress: aiSrc.compress !== false,
-        liveComment: aiSrc.liveComment !== false,
-        systemPrompt: str(aiSrc.systemPrompt),
-      },
-    },
-    products: [],
-    formulas: [],
-  };
+  const state = { products: [], densityLog: [], timer: null };
 
   if (Array.isArray(src.products)) {
     for (const p of src.products) {
@@ -133,11 +72,7 @@ export function decode(raw) {
       if (Array.isArray(p.plates)) {
         for (const pl of p.plates) {
           if (!pl || typeof pl !== "object") continue;
-          plates.push({
-            id: str(pl.id) || "pl_" + uid(),
-            fresh: pl.fresh === true,
-            note: str(pl.note).trim(),
-          });
+          plates.push({ id: str(pl.id) || "pl_" + uid(), fresh: pl.fresh === true, note: str(pl.note).trim() });
         }
       }
       // 3.0.4 的老格式：总数 / 新板数 / 新板要求 —— 自动折成板子列表
@@ -153,29 +88,33 @@ export function decode(raw) {
   }
   if (!state.products.length) state.products = defaultProducts();
 
-  if (Array.isArray(src.formulas)) {
-    for (const f of src.formulas) {
-      if (!f || typeof f !== "object") continue;
-      const items = [];
-      if (Array.isArray(f.items)) {
-        for (const it of f.items) {
-          if (!it || typeof it !== "object") continue;
-          items.push({
-            id: str(it.id) || "fi_" + uid(),
-            name: str(it.name),
-            percent: Math.min(100, Math.max(0, num(it.percent) ?? 0)),
-          });
-        }
-      }
-      state.formulas.push({
-        id: str(f.id) || "f_" + uid(),
-        name: str(f.name) || "未命名配方",
-        totalG: positive(f.totalG, 600),
-        note: str(f.note),
-        purpose: str(f.purpose),
-        cure: str(f.cure),
-        items,
+  if (Array.isArray(src.densityLog)) {
+    for (const r of src.densityLog) {
+      if (!r || typeof r !== "object") continue;
+      state.densityLog.push({
+        id: str(r.id) || "d_" + uid(),
+        at: num(r.at) ?? 0,
+        m1: num(r.m1) ?? 0, m2: num(r.m2) ?? 0, m3: num(r.m3) ?? 0,
+        m4: num(r.m4) ?? 0, m5: num(r.m5) ?? 0, m6: num(r.m6) ?? 0,
+        specific: num(r.specific),
+        solid: num(r.solid),
+        foam: num(r.foam),
+        note: str(r.note),
       });
+    }
+    state.densityLog.sort((a, b) => b.at - a.at);
+  }
+
+  if (src.timer && typeof src.timer === "object") {
+    const minutes = Math.round(num(src.timer.minutes) ?? 0);
+    if (minutes > 0) {
+      state.timer = {
+        productName: str(src.timer.productName),
+        tempC: Math.round(num(src.timer.tempC) ?? 0),
+        minutes,
+        endAt: num(src.timer.endAt) ?? 0,
+        pausedLeft: num(src.timer.pausedLeft) ?? -1,
+      };
     }
   }
 
@@ -185,40 +124,24 @@ export function decode(raw) {
 export function encode(state) {
   return JSON.stringify({
     v: 1,
-    settings: {
-      ai: {
-        baseUrl: state.settings.ai.baseUrl,
-        apiKey: state.settings.ai.apiKey,
-        model: state.settings.ai.model,
-        thinking: state.settings.ai.thinking,
-        compress: state.settings.ai.compress,
-        liveComment: state.settings.ai.liveComment,
-        systemPrompt: state.settings.ai.systemPrompt,
-      },
-    },
     products: state.products.map((p) => ({
       id: p.id,
       name: p.name,
       bakes: p.bakes.map((b) => ({ temp: b.temp, minutes: b.minutes })),
       ...(p.plates?.length
-        ? {
-            plates: p.plates.map((pl) => ({
-              id: pl.id,
-              fresh: !!pl.fresh,
-              ...(pl.note ? { note: pl.note } : {}),
-            })),
-          }
+        ? { plates: p.plates.map((pl) => ({ id: pl.id, fresh: !!pl.fresh, ...(pl.note ? { note: pl.note } : {}) })) }
         : {}),
     })),
-    formulas: state.formulas.map((f) => ({
-      id: f.id,
-      name: f.name,
-      totalG: f.totalG,
-      note: f.note,
-      ...(f.purpose ? { purpose: f.purpose } : {}),
-      ...(f.cure ? { cure: f.cure } : {}),
-      items: f.items.map((it) => ({ id: it.id, name: it.name, percent: it.percent })),
+    densityLog: state.densityLog.map((r) => ({
+      id: r.id,
+      at: r.at,
+      m1: r.m1, m2: r.m2, m3: r.m3, m4: r.m4, m5: r.m5, m6: r.m6,
+      ...(r.specific !== null && r.specific !== undefined ? { specific: r.specific } : {}),
+      ...(r.solid !== null && r.solid !== undefined ? { solid: r.solid } : {}),
+      ...(r.foam !== null && r.foam !== undefined ? { foam: r.foam } : {}),
+      ...(r.note ? { note: r.note } : {}),
     })),
+    ...(state.timer ? { timer: state.timer } : {}),
   });
 }
 
@@ -235,19 +158,17 @@ function readStored() {
     return { state: defaultState(), note: "浏览器禁用了本地存储，这次的数据关掉页面就没了" };
   }
   if (!raw) return { state: defaultState(), note: "" };
-
   try {
     const parsed = JSON.parse(raw);
-    // 老版本（带取样/烘烤/记录）的数据：留一份原始备份，别直接丢
-    if (parsed && (Array.isArray(parsed.samples) || Array.isArray(parsed.sampling))) {
+    if (parsed && (Array.isArray(parsed.formulas) || Array.isArray(parsed.samples))) {
       try {
         localStorage.setItem(LEGACY_BACKUP_KEY, raw);
       } catch {
-        /* 存不下就算了，不影响主流程 */
+        /* 存不下就算了 */
       }
     }
     return { state: decode(parsed), note: "" };
-  } catch (e) {
+  } catch {
     return { state: defaultState(), note: "本地数据读不出来，已用默认数据启动（原数据没删）" };
   }
 }
@@ -276,7 +197,6 @@ function save() {
   }
 }
 
-/** 所有写操作都走这里：改完立刻存盘 + 通知界面 */
 export function mutate(fn) {
   const next = decode(encode(state));
   fn(next);
@@ -298,33 +218,8 @@ export function replaceState(next) {
   for (const l of listeners) l(state);
 }
 
-// ---------------------------------------------------------------- 派生计算
+// ---------------------------------------------------------------- 派生
 
-export function formulaOf(id) {
-  return state.formulas.find((f) => f.id === id) || null;
-}
-
-export function sumPercent(f) {
-  return f.items.reduce((s, it) => s + (num(it.percent) ?? 0), 0);
-}
-
-export function gramsOf(f, item) {
-  return ((num(item.percent) ?? 0) * (f.totalG || 0)) / 100;
-}
-
-export function sumGrams(f) {
-  return f.items.reduce((s, it) => s + gramsOf(f, it), 0);
-}
-
-export function restPercent(f) {
-  return 100 - sumPercent(f);
-}
-
-export function restGrams(f) {
-  return (f.totalG || 0) - sumGrams(f);
-}
-
-/** 电泳板的一句话说明，列表和 AI 共用 */
 export function plateText(p) {
   const plates = p?.plates || [];
   if (!plates.length) return "不用电泳板";
@@ -336,7 +231,6 @@ export function plateText(p) {
   return `电泳板 ${plates.length} 块（${parts.join(" / ")}）`;
 }
 
-/** 每块板子一行：「新 · 2mm 流挂」「旧」 */
 export function plateLines(p) {
   return (p?.plates || []).map((pl) => {
     const tag = pl.fresh ? "新" : "旧";
@@ -344,102 +238,28 @@ export function plateLines(p) {
   });
 }
 
-export function isComplete(f) {
-  return Math.abs(restPercent(f)) < 0.05;
+/** 计时器剩余毫秒 */
+export function timerLeft(t, now = Date.now()) {
+  if (!t) return 0;
+  return t.pausedLeft >= 0 ? Math.max(0, t.pausedLeft) : Math.max(0, t.endAt - now);
 }
 
 // ---------------------------------------------------------------- 写操作
 
 export const actions = {
-  addFormula(name = "新配方", totalG = 600) {
-    const id = "f_" + uid();
-    mutate((s) => {
-      s.formulas.push({
-        id,
-        name: name || `配方 ${s.formulas.length + 1}`,
-        totalG: totalG > 0 ? totalG : 600,
-        note: "",
-        purpose: "",
-        cure: "",
-        items: [],
-      });
-    });
-    return id;
-  },
-
-  updateFormula(id, patch) {
-    mutate((s) => {
-      const f = s.formulas.find((x) => x.id === id);
-      if (f) Object.assign(f, patch);
-    });
-  },
-
-  removeFormula(id) {
-    mutate((s) => {
-      s.formulas = s.formulas.filter((f) => f.id !== id);
-    });
-  },
-
-  duplicateFormula(id) {
-    const newId = "f_" + uid();
-    mutate((s) => {
-      const src = s.formulas.find((f) => f.id === id);
-      if (!src) return;
-      s.formulas.push({
-        ...src,
-        id: newId,
-        name: src.name + " 副本",
-        items: src.items.map((it) => ({ ...it, id: "fi_" + uid() })),
-      });
-    });
-    return newId;
-  },
-
-  addItem(formulaId, name = "", percent = 0) {
-    const id = "fi_" + uid();
-    mutate((s) => {
-      const f = s.formulas.find((x) => x.id === formulaId);
-      if (f) f.items.push({ id, name, percent });
-    });
-    return id;
-  },
-
-  updateItem(formulaId, itemId, patch) {
-    mutate((s) => {
-      const f = s.formulas.find((x) => x.id === formulaId);
-      const it = f?.items.find((x) => x.id === itemId);
-      if (!it) return;
-      if (typeof patch.name === "string") it.name = patch.name;
-      if (patch.percent !== undefined && patch.percent !== null) {
-        it.percent = Math.min(100, Math.max(0, num(patch.percent) ?? 0));
-      }
-    });
-  },
-
-  removeItem(formulaId, itemId) {
-    mutate((s) => {
-      const f = s.formulas.find((x) => x.id === formulaId);
-      if (f) f.items = f.items.filter((x) => x.id !== itemId);
-    });
-  },
-
-  fillRest(formulaId, itemId) {
-    mutate((s) => {
-      const f = s.formulas.find((x) => x.id === formulaId);
-      if (!f) return;
-      const others = f.items.filter((x) => x.id !== itemId).reduce((a, b) => a + b.percent, 0);
-      const it = f.items.find((x) => x.id === itemId);
-      if (it) it.percent = Math.max(0, Math.round((100 - others) * 100) / 100);
-    });
-  },
-
+  // ---- 产品
   addProduct(name, bakes = [], plates = []) {
     const clean = name.trim();
     if (!clean) return null;
     if (state.products.some((p) => p.name === clean)) return null;
     const id = "p_" + uid();
     mutate((s) => {
-      s.products.push({ id, name: clean, bakes, plates: plates.map((pl) => ({ ...pl, id: pl.id || "pl_" + uid() })) });
+      s.products.push({
+        id,
+        name: clean,
+        bakes,
+        plates: plates.map((pl) => ({ ...pl, id: pl.id || "pl_" + uid() })),
+      });
     });
     return id;
   },
@@ -462,37 +282,77 @@ export const actions = {
     });
   },
 
-  updateAi(patch) {
+  // ---- 计时
+  startTimer(productName, tempC, minutes) {
+    if (!(minutes > 0)) return;
     mutate((s) => {
-      Object.assign(s.settings.ai, patch);
+      s.timer = {
+        productName,
+        tempC,
+        minutes,
+        endAt: Date.now() + minutes * 60000,
+        pausedLeft: -1,
+      };
     });
   },
 
+  pauseTimer() {
+    mutate((s) => {
+      if (!s.timer || s.timer.pausedLeft >= 0) return;
+      s.timer.pausedLeft = timerLeft(s.timer);
+    });
+  },
+
+  resumeTimer() {
+    mutate((s) => {
+      if (!s.timer || s.timer.pausedLeft < 0) return;
+      s.timer.endAt = Date.now() + Math.max(0, s.timer.pausedLeft);
+      s.timer.pausedLeft = -1;
+    });
+  },
+
+  stopTimer() {
+    mutate((s) => {
+      s.timer = null;
+    });
+  },
+
+  // ---- 比重历史
+  addDensityRecord(input, result) {
+    const id = "d_" + uid();
+    mutate((s) => {
+      s.densityLog.unshift({
+        id,
+        at: Date.now(),
+        ...input,
+        specific: result.specific,
+        solid: result.solid,
+        foam: result.foam,
+        note: "",
+      });
+      while (s.densityLog.length > 200) s.densityLog.pop();
+    });
+    return id;
+  },
+
+  removeDensityRecord(id) {
+    mutate((s) => {
+      s.densityLog = s.densityLog.filter((r) => r.id !== id);
+    });
+  },
+
+  clearDensityLog() {
+    mutate((s) => {
+      s.densityLog = [];
+    });
+  },
+
+  // ---- 备份
   importJson(raw) {
-    const next = decode(raw);
-    replaceState(next);
-    return next;
+    replaceState(decode(raw));
   },
 
   exportJson() {
     return encode(state);
   },
-
-  clearFormulas() {
-    mutate((s) => {
-      s.formulas = [];
-    });
-  },
-
-  resetAll() {
-    replaceState(defaultState());
-  },
 };
-
-export function legacyBackup() {
-  try {
-    return localStorage.getItem(LEGACY_BACKUP_KEY);
-  } catch {
-    return null;
-  }
-}

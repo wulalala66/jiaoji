@@ -1,6 +1,8 @@
 package com.gluelab.jiaoji
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -22,32 +25,51 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import java.util.Locale
 
 /**
- * 产品（客户）→ 烘烤条件表。查一下就知道某家的胶要烤多少度多少分钟，
- * 放进烘箱时也能直接挑，省得每次问车间。
+ * 产品（客户）→ 烘烤条件表。
+ *
+ * 交互：
+ *  · 点产品 = 按这条条件开始倒计时；一个产品有多条条件时，先弹一层让你选
+ *  · 长按产品 = 改（增删条件、电泳板）
  */
 @Composable
 fun ProductsScreen(state: AppState) {
     var q by remember { mutableStateOf("") }
     var editing by remember { mutableStateOf<Product?>(null) }
     var creating by remember { mutableStateOf(false) }
+    var choosing by remember { mutableStateOf<Product?>(null) }
+    var confirmStop by remember { mutableStateOf(false) }
+    val ctx = LocalContext.current
 
     val key = q.trim()
     val list = state.products.filter { p ->
         key.isBlank() || p.name.contains(key, true) ||
             p.bakes.any { "${it.tempC} ${it.minutes}".contains(key) }
+    }
+
+    fun start(p: Product, b: BakePreset) {
+        TimerAlert.cancel(ctx)
+        Repo.I.startTimer(p.name, b.tempC, b.minutes)
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
@@ -67,12 +89,31 @@ fun ProductsScreen(state: AppState) {
             colors = fieldColors(),
         )
 
+        state.timer?.let { t ->
+            TimerBanner(
+                timer = t,
+                onPause = { Repo.I.pauseTimer() },
+                onResume = { Repo.I.resumeTimer() },
+                onStop = { confirmStop = true },
+            )
+            Spacer(Modifier.height(10.dp))
+        }
+
         LazyColumn(
             contentPadding = PaddingValues(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             items(list, key = { it.id }) { p ->
-                AppCard(onClick = { editing = p }) {
+                AppCard(
+                    onClick = {
+                        when {
+                            p.bakes.isEmpty() -> Toast0(ctx, "「${p.name}」还没有烘烤条件，长按可以编辑")
+                            p.bakes.size == 1 -> start(p, p.bakes.first())
+                            else -> choosing = p
+                        }
+                    },
+                    onLongClick = { editing = p },
+                ) {
                     Text(
                         p.name,
                         style = MaterialTheme.typography.titleSmall,
@@ -91,11 +132,7 @@ fun ProductsScreen(state: AppState) {
                         val noted = p.plateLines().filter { it.contains("·") }
                         if (noted.isNotEmpty()) {
                             Spacer(Modifier.height(4.dp))
-                            Text(
-                                noted.joinToString(" ｜ "),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Ink3,
-                            )
+                            Text(noted.joinToString(" ｜ "), style = MaterialTheme.typography.bodySmall, color = Ink3)
                         }
                     }
                 }
@@ -103,22 +140,172 @@ fun ProductsScreen(state: AppState) {
             if (list.isEmpty()) {
                 item { EmptyHint("🔍", "没找到", "换个词试试，或者点右上角 ＋ 新增一条") }
             }
+            item {
+                Text(
+                    "点一下条件开始计时，长按产品可以改。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Ink3,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
         }
     }
 
-    if (creating) {
-        ProductEditDialog(existing = null, onDismiss = { creating = false })
+    // 多条件：先选一条
+    choosing?.let { p ->
+        AlertDialog(
+            onDismissRequest = { choosing = null },
+            title = { Text("选一个烘烤条件", style = MaterialTheme.typography.titleMedium) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("「${p.name}」有 ${p.bakes.size} 条条件，点哪条就按哪条计时。", style = MaterialTheme.typography.bodySmall, color = Ink3)
+                    p.bakes.forEach { b ->
+                        Surface(
+                            onClick = {
+                                choosing = null
+                                start(p, b)
+                            },
+                            color = BrandSoft,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(b.text(), color = BrandDark, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                                Spacer(Modifier.weight(1f))
+                                Text("开始计时 →", color = Brand, fontSize = 13.sp)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { choosing = null }) { Text("取消", color = Ink2) } },
+        )
     }
-    editing?.let { p ->
-        ProductEditDialog(existing = p, onDismiss = { editing = null })
+
+    if (confirmStop) {
+        AlertDialog(
+            onDismissRequest = { confirmStop = false },
+            title = { Text("结束这次计时？", style = MaterialTheme.typography.titleMedium) },
+            text = { Text("还剩 ${fmtLeft(state.timer?.remaining(System.currentTimeMillis()) ?: 0L)}，结束了就不提醒了。", style = MaterialTheme.typography.bodyMedium, color = Ink2) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmStop = false
+                    TimerAlert.cancel(ctx)
+                    Repo.I.stopTimer()
+                }) { Text("结束", color = Danger) }
+            },
+            dismissButton = { TextButton(onClick = { confirmStop = false }) { Text("继续烤", color = Ink2) } },
+        )
+    }
+
+    if (creating) ProductEditDialog(existing = null, onDismiss = { creating = false })
+    editing?.let { p -> ProductEditDialog(existing = p, onDismiss = { editing = null }) }
+}
+
+private fun Toast0(ctx: android.content.Context, msg: String) {
+    android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_SHORT).show()
+}
+
+// ---------------------------------------------------------------- 计时条
+
+@Composable
+private fun TimerBanner(timer: BakeTimer, onPause: () -> Unit, onResume: () -> Unit, onStop: () -> Unit) {
+    val ctx = LocalContext.current
+    val now by produceState(System.currentTimeMillis()) {
+        while (true) {
+            value = System.currentTimeMillis()
+            delay(500)
+        }
+    }
+    val left = timer.remaining(now)
+    val done = left <= 0 && !timer.paused
+
+    // 到点只提醒一次（按 endAt 记住，换一个计时会重新算）
+    var firedFor by remember { mutableStateOf(-1L) }
+    LaunchedEffect(done, timer.endAt) {
+        if (done && firedFor != timer.endAt) {
+            firedFor = timer.endAt
+            TimerAlert.fire(ctx, "烘烤到点了", timer.label().ifBlank { "该出炉了" })
+        }
+    }
+
+    val bg = when {
+        done -> DangerSoft
+        timer.paused -> WarnSoft
+        else -> BrandSoft
+    }
+    Surface(color = bg, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    timer.label().ifBlank { "烘烤计时" },
+                    fontSize = 13.sp,
+                    color = if (done) Danger else Ink2,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f),
+                )
+                Text("共 ${timer.minutes} 分", fontSize = 12.sp, color = Ink3)
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                if (done) "到点了，出炉！" else fmtLeft(left),
+                fontSize = if (done) 22.sp else 32.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = if (done) Danger else Ink,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+            )
+            if (timer.paused) {
+                Text("已暂停", fontSize = 12.sp, color = Warn)
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (!done) {
+                    Surface(
+                        onClick = { if (timer.paused) onResume() else onPause() },
+                        color = CardBg,
+                        shape = RoundedCornerShape(10.dp),
+                    ) {
+                        Text(
+                            if (timer.paused) "继续" else "暂停",
+                            fontSize = 13.sp,
+                            color = Ink,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                        )
+                    }
+                }
+                Surface(onClick = onStop, color = CardBg, shape = RoundedCornerShape(10.dp)) {
+                    Text(
+                        if (done) "知道了" else "结束",
+                        fontSize = 13.sp,
+                        color = if (done) Danger else Ink2,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                    )
+                }
+            }
+        }
     }
 }
+
+private fun fmtLeft(ms: Long): String {
+    val total = (ms + 999) / 1000
+    val h = total / 3600
+    val m = (total % 3600) / 60
+    val s = total % 60
+    return if (h > 0) String.format(Locale.US, "%d:%02d:%02d", h, m, s)
+    else String.format(Locale.US, "%02d:%02d", m, s)
+}
+
+// ---------------------------------------------------------------- 卡片里的条件
 
 @Composable
 @OptIn(ExperimentalLayoutApi::class)
 private fun BakePresetPills(bakes: List<BakePreset>) {
     if (bakes.isEmpty()) {
-        Text("还没填烘烤条件", style = MaterialTheme.typography.bodySmall, color = Ink3)
+        Text("还没填烘烤条件（长按编辑）", style = MaterialTheme.typography.bodySmall, color = Ink3)
         return
     }
     FlowRow(
@@ -131,21 +318,21 @@ private fun BakePresetPills(bakes: List<BakePreset>) {
     }
 }
 
+// ---------------------------------------------------------------- 编辑弹层
+
 private data class PresetRow(val id: String, val temp: String, val min: String)
 
 @Composable
 private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf(existing?.name ?: "") }
-    val plates = remember {
-        mutableStateListOf<Plate>().apply {
-            existing?.plates?.forEach { add(it.copy()) }
-        }
-    }
     val rows = remember {
         mutableStateListOf<PresetRow>().apply {
             existing?.bakes?.forEach { add(PresetRow(Repo.uid(), "${it.tempC}", "${it.minutes}")) }
             if (isEmpty()) add(PresetRow(Repo.uid(), "140", "30"))
         }
+    }
+    val plates = remember {
+        mutableStateListOf<Plate>().apply { existing?.plates?.forEach { add(it.copy()) } }
     }
     var confirmDelete by remember { mutableStateOf(false) }
 
@@ -226,17 +413,14 @@ private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
                     Text("＋ 加一块板", color = Brand)
                 }
                 Text(
-                    "例：安徽万安 4 块 —— 1 块新板写「2mm 流挂」，3 块旧板空着就行；" +
-                        "也可以一块写「测附着力」、一块写「测硬度」。",
+                    "例：安徽万安 4 块 —— 1 块新板写「2mm 流挂」，3 块旧板空着。",
                     style = MaterialTheme.typography.bodySmall,
                     color = Ink3,
                 )
+
                 if (confirmDelete) {
-                    Text(
-                        "删掉「${existing?.name ?: ""}」？",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Danger,
-                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text("删掉「${existing?.name ?: ""}」？", style = MaterialTheme.typography.bodySmall, color = Danger)
                 }
             }
         },
@@ -250,11 +434,8 @@ private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
                         if (t in 30..300 && m in 1..600) BakePreset(t, m) else null
                     }
                     val plateList = plates.toList()
-                    if (existing == null) {
-                        Repo.I.addProduct(name.trim(), bakes, plateList)
-                    } else {
-                        Repo.I.updateProduct(existing.id, name.trim(), bakes, plateList)
-                    }
+                    if (existing == null) Repo.I.addProduct(name.trim(), bakes, plateList)
+                    else Repo.I.updateProduct(existing.id, name.trim(), bakes, plateList)
                     onDismiss()
                 },
             ) { Text("保存", color = Brand) }

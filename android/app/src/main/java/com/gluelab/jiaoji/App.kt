@@ -18,6 +18,7 @@ class App : Application() {
     override fun onCreate() {
         super.onCreate()
         Repo.I.init(this)
+        TimerAlert.ensureChannel(this)
 
         // 老版本留下的通知（闹钟/计时器）：一律清掉
         runCatching {

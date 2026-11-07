@@ -6,31 +6,8 @@ import java.util.Locale
 
 // ============================================================
 //  数据模型
-//  存储格式与网页版共用一份 JSON（v1），两边的备份文件可以互相导入。
+//  存储格式与网页版共用一份 JSON（v1），两边的备份可以互相导入。
 // ============================================================
-
-/**
- * AI 助手的连接配置（OpenAI 兼容接口）。
- * baseUrl 填到 /v1 为止，例如 https://api.openai.com/v1 或自己的中转地址。
- */
-data class AiSettings(
-    var baseUrl: String = "",
-    var apiKey: String = "",
-    var model: String = "",
-    /** 思考档位："" 关 / low / medium / high */
-    var thinking: String = "",
-    /** 对话太长时自动压缩成摘要 */
-    var compress: Boolean = true,
-    /** 改配料时让 AI 顺手点评一句 */
-    var liveComment: Boolean = true,
-    var systemPrompt: String = "",
-) {
-    val ready: Boolean get() = baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()
-}
-
-data class Settings(
-    var ai: AiSettings = AiSettings(),
-)
 
 /** 一条烘烤条件：多少度烤多少分钟 */
 data class BakePreset(var tempC: Int = 140, var minutes: Int = 30) {
@@ -40,22 +17,20 @@ data class BakePreset(var tempC: Int = 140, var minutes: Int = 30) {
 /**
  * 一块电泳板。
  *
- * 板子是有各自用途的：同一批烘烤里，可能一块专门做 2mm 流挂、一块测硬度、
- * 一块做附着力 —— 新旧都可能带要求，所以每块单独记，而不是只给「新板」一个条件。
+ * 板子有各自用途：同一批烘烤里，可能一块专门做 2mm 流挂、一块测硬度、
+ * 一块测附着力 —— 新旧都可能带要求，所以每块单独记。
  */
 data class Plate(
     var id: String = "",
-    /** true = 新板，false = 旧板 */
+    /** true = 新板 */
     var fresh: Boolean = false,
-    /** 这块板子拿来做什么 / 有什么要求，比如「2mm 流挂」「测附着力」；可以空着 */
+    /** 这块板子拿来做什么 / 有什么要求，比如「2mm 流挂」；可以空着 */
     var note: String = "",
 )
 
 /**
  * 产品 / 客户对应的烘烤条件（车间那张表）。
- *
- * 除了温度时间，还要记「这次烘烤准备哪几块电泳板」：
- * 例：安徽万安 4 块 —— 1 块新板做 2mm 流挂，3 块旧板（没特别要求）。
+ * 例：安徽万安 —— 170℃ 20分 / 210℃ 20分；电泳板 4 块，其中 1 块新板做 2mm 流挂。
  */
 data class Product(
     var id: String = "",
@@ -67,7 +42,6 @@ data class Product(
     val plateNew: Int get() = plates.count { it.fresh }
     val plateOld: Int get() = plates.count { !it.fresh }
 
-    /** 一句话摘要，列表和 AI 都用它 */
     fun plateText(): String {
         if (plates.isEmpty()) return "不用电泳板"
         val parts = ArrayList<String>()
@@ -83,38 +57,62 @@ data class Product(
     }
 }
 
-data class FormulaItem(
-    var id: String = "",
-    var name: String = "",
-    var percent: Double = 0.0,
-)
-
-data class Formula(
-    var id: String = "",
-    var name: String = "",
-    var totalG: Double = 600.0,
-    var items: MutableList<FormulaItem> = mutableListOf(),
-    var note: String = "",
-    /** 打印用的「实验目的」，比如「降低粘度」 */
-    var purpose: String = "",
-    /** 打印用的「固化温度」，比如「140*30」 */
-    var cure: String = "",
+/**
+ * 正在跑的烘烤计时。
+ *
+ * 存的是「结束时刻」而不是「还剩多少秒」：App 切到后台、屏幕熄掉、
+ * 甚至进程被杀再打开，时间都还是对的。
+ */
+data class BakeTimer(
+    var productName: String = "",
+    var tempC: Int = 0,
+    var minutes: Int = 0,
+    var endAt: Long = 0L,
+    /** 暂停中记剩余毫秒；-1 表示没暂停 */
+    var pausedLeft: Long = -1L,
 ) {
-    fun sumPercent(): Double = items.sumOf { it.percent }
-    fun gramsOf(it: FormulaItem): Double = it.percent * totalG / 100.0
-    fun sumGrams(): Double = items.sumOf { gramsOf(it) }
-    fun restPercent(): Double = 100.0 - sumPercent()
-    fun restGrams(): Double = totalG - sumGrams()
-    /** 合计是否已经凑满 100%（容忍一位小数的舍入误差） */
-    fun isComplete(): Boolean = kotlin.math.abs(restPercent()) < 0.05
+    val paused: Boolean get() = pausedLeft >= 0
+    val totalMs: Long get() = minutes * 60_000L
+
+    fun remaining(now: Long): Long =
+        if (pausedLeft >= 0) pausedLeft.coerceAtLeast(0) else (endAt - now).coerceAtLeast(0)
+
+    fun label(): String = listOf(productName, if (tempC > 0) "${tempC}℃" else "").filter { it.isNotBlank() }.joinToString(" · ")
 }
 
 /**
- * 比重用的六个称量值（对应车间那张 Excel 的 M1~M6）：
- *   M1 / M2  烘前（杯 + 样）
- *   M3 / M4  烘后
- *   M5 / M6  固份（可留空，留空按 0 算，这时只算比重不算固含）
+ * 一次比重测试的存档：当时输入的六个称量值 + 当时算出来的三个结果。
+ * 结果也存一份，是为了以后万一公式改了，旧记录仍然保持当时的样子。
  */
+data class DensityRecord(
+    var id: String = "",
+    var at: Long = 0L,
+    var m1: Double = 0.0,
+    var m2: Double = 0.0,
+    var m3: Double = 0.0,
+    var m4: Double = 0.0,
+    var m5: Double = 0.0,
+    var m6: Double = 0.0,
+    var specific: Double? = null,
+    var solid: Double? = null,
+    var foam: Double? = null,
+    var note: String = "",
+) {
+    fun density(): Density = Density(m1, m2, m3, m4, m5, m6)
+}
+
+class AppState(
+    var products: MutableList<Product> = mutableListOf(),
+    /** 比重测试历史，最新的在前 */
+    var densityLog: MutableList<DensityRecord> = mutableListOf(),
+    /** 同一时间只跑一个烘烤计时 */
+    var timer: BakeTimer? = null,
+)
+
+// ============================================================
+//  比重（车间那张 Excel）
+// ============================================================
+
 data class Density(
     var m1: Double = 0.0,
     var m2: Double = 0.0,
@@ -122,10 +120,7 @@ data class Density(
     var m4: Double = 0.0,
     var m5: Double = 0.0,
     var m6: Double = 0.0,
-) {
-    fun toList(): List<Double> = listOf(m1, m2, m3, m4, m5, m6)
-    val hasSolid: Boolean get() = m5 > 0.0 && m6 > 0.0
-}
+)
 
 data class DensityResult(
     val d1: Double = 0.0,
@@ -153,21 +148,11 @@ object DensityCalc {
         return DensityResult(d1, d2, d3, d4, specific, solid, foam)
     }
 
-    fun calc(d: Density?): DensityResult =
-        if (d == null) calc(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
-        else calc(d.m1, d.m2, d.m3, d.m4, d.m5, d.m6)
-
     fun text(v: Double?, digits: Int = 4): String {
         if (v == null || v.isNaN() || v.isInfinite()) return "—"
         return String.format(Locale.US, "%." + digits + "f", v)
     }
 }
-
-class AppState(
-    var settings: Settings = Settings(),
-    var products: MutableList<Product> = mutableListOf(),
-    var formulas: MutableList<Formula> = mutableListOf(),
-)
 
 // ============================================================
 //  默认数据
@@ -202,28 +187,7 @@ object Defaults {
         Product("p16", "太仓格盛恩", mutableListOf(BakePreset(170, 20))),
     )
 
-    /** 第一次打开时给一张示例配料单，比空列表好懂：一眼看出「百分比 + 总量」怎么用 */
-    fun formulas(): MutableList<Formula> = mutableListOf(
-        Formula(
-            id = "f_demo",
-            name = "底涂胶 A 料（示例）",
-            totalG = 600.0,
-            purpose = "示例：可以改，也可以直接删",
-            cure = "140*30",
-            items = mutableListOf(
-                FormulaItem("fi_demo1", "D1NP", 26.33),
-                FormulaItem("fi_demo2", "碳酸钙", 18.0),
-                FormulaItem("fi_demo3", "增塑剂", 12.5),
-                FormulaItem("fi_demo4", "炭黑", 3.17),
-                FormulaItem("fi_demo5", "填料 A", 40.0),
-            ),
-        )
-    )
-
-    fun state(): AppState = AppState(
-        products = products(),
-        formulas = formulas(),
-    )
+    fun state(): AppState = AppState(products = products())
 }
 
 // ============================================================
@@ -235,17 +199,6 @@ object Codec {
     fun encode(s: AppState): String {
         val o = JSONObject()
         o.put("v", 1)
-        o.put("settings", JSONObject().apply {
-            put("ai", JSONObject().apply {
-                put("baseUrl", s.settings.ai.baseUrl)
-                put("apiKey", s.settings.ai.apiKey)
-                put("model", s.settings.ai.model)
-                put("thinking", s.settings.ai.thinking)
-                put("compress", s.settings.ai.compress)
-                put("liveComment", s.settings.ai.liveComment)
-                put("systemPrompt", s.settings.ai.systemPrompt)
-            })
-        })
         o.put("products", JSONArray().apply {
             s.products.forEach { pd ->
                 put(JSONObject().apply {
@@ -268,27 +221,29 @@ object Codec {
                 })
             }
         })
-        o.put("formulas", JSONArray().apply {
-            s.formulas.forEach { f ->
+        o.put("densityLog", JSONArray().apply {
+            s.densityLog.forEach { r ->
                 put(JSONObject().apply {
-                    put("id", f.id)
-                    put("name", f.name)
-                    put("totalG", f.totalG)
-                    put("note", f.note)
-                    if (f.purpose.isNotEmpty()) put("purpose", f.purpose)
-                    if (f.cure.isNotEmpty()) put("cure", f.cure)
-                    put("items", JSONArray().apply {
-                        f.items.forEach { it2 ->
-                            put(JSONObject().apply {
-                                put("id", it2.id)
-                                put("name", it2.name)
-                                put("percent", it2.percent)
-                            })
-                        }
-                    })
+                    put("id", r.id)
+                    put("at", r.at)
+                    put("m1", r.m1); put("m2", r.m2); put("m3", r.m3)
+                    put("m4", r.m4); put("m5", r.m5); put("m6", r.m6)
+                    r.specific?.let { put("specific", it) }
+                    r.solid?.let { put("solid", it) }
+                    r.foam?.let { put("foam", it) }
+                    if (r.note.isNotBlank()) put("note", r.note)
                 })
             }
         })
+        s.timer?.let { t ->
+            o.put("timer", JSONObject().apply {
+                put("productName", t.productName)
+                put("tempC", t.tempC)
+                put("minutes", t.minutes)
+                put("endAt", t.endAt)
+                put("pausedLeft", t.pausedLeft)
+            })
+        }
         return o.toString()
     }
 
@@ -296,26 +251,22 @@ object Codec {
         val s = AppState()
         val o = JSONObject(raw)
 
-        o.optJSONObject("settings")?.optJSONObject("ai")?.let { a ->
-            s.settings = Settings(
-                AiSettings(
-                    baseUrl = a.optString("baseUrl", "").trim(),
-                    apiKey = a.optString("apiKey", "").trim(),
-                    model = a.optString("model", "").trim(),
-                    thinking = a.optString("thinking", ""),
-                    compress = a.optBoolean("compress", true),
-                    liveComment = a.optBoolean("liveComment", true),
-                    systemPrompt = a.optString("systemPrompt", ""),
-                )
-            )
-        }
-
         o.optJSONArray("products")?.let { arr ->
             for (i in 0 until arr.length()) {
                 val j = arr.optJSONObject(i) ?: continue
                 val name = j.optString("name", "").trim()
                 if (name.isEmpty()) continue
                 val pd = Product(id = j.optString("id", "p_$i"), name = name)
+
+                j.optJSONArray("bakes")?.let { bs ->
+                    for (k in 0 until bs.length()) {
+                        val b = bs.optJSONObject(k) ?: continue
+                        val t = b.optInt("temp", b.optInt("tempC", 140))
+                        val m = b.optInt("minutes", 30)
+                        if (t > 0 && m > 0) pd.bakes.add(BakePreset(t, m))
+                    }
+                }
+
                 j.optJSONArray("plates")?.let { ps ->
                     for (k in 0 until ps.length()) {
                         val po = ps.optJSONObject(k) ?: continue
@@ -336,65 +287,42 @@ object Codec {
                     repeat(fresh) { pd.plates.add(Plate("pl_${i}_n$it", fresh = true, note = spec)) }
                     repeat(total - fresh) { pd.plates.add(Plate("pl_${i}_o$it", fresh = false)) }
                 }
-                j.optJSONArray("bakes")?.let { bs ->
-                    for (k in 0 until bs.length()) {
-                        val b = bs.optJSONObject(k) ?: continue
-                        val t = b.optInt("temp", b.optInt("tempC", 140))
-                        val m = b.optInt("minutes", 30)
-                        if (t > 0 && m > 0) pd.bakes.add(BakePreset(t, m))
-                    }
-                }
                 s.products.add(pd)
             }
         }
         if (s.products.isEmpty()) s.products = Defaults.products()
 
-        o.optJSONArray("formulas")?.let { arr ->
+        o.optJSONArray("densityLog")?.let { arr ->
             for (i in 0 until arr.length()) {
                 val j = arr.optJSONObject(i) ?: continue
-                val f = Formula(
-                    id = j.optString("id", "f_$i"),
-                    name = j.optString("name", "未命名配方"),
-                    totalG = j.optDouble("totalG", 600.0).takeIf { it > 0 } ?: 600.0,
-                    note = j.optString("note", ""),
-                    purpose = j.optString("purpose", ""),
-                    cure = j.optString("cure", ""),
+                s.densityLog.add(
+                    DensityRecord(
+                        id = j.optString("id", "d_$i"),
+                        at = j.optLong("at", 0L),
+                        m1 = j.optDouble("m1", 0.0), m2 = j.optDouble("m2", 0.0),
+                        m3 = j.optDouble("m3", 0.0), m4 = j.optDouble("m4", 0.0),
+                        m5 = j.optDouble("m5", 0.0), m6 = j.optDouble("m6", 0.0),
+                        specific = if (j.has("specific") && !j.isNull("specific")) j.optDouble("specific") else null,
+                        solid = if (j.has("solid") && !j.isNull("solid")) j.optDouble("solid") else null,
+                        foam = if (j.has("foam") && !j.isNull("foam")) j.optDouble("foam") else null,
+                        note = j.optString("note", ""),
+                    )
                 )
-                j.optJSONArray("items")?.let { its ->
-                    for (k in 0 until its.length()) {
-                        val it2 = its.optJSONObject(k) ?: continue
-                        f.items.add(
-                            FormulaItem(
-                                id = it2.optString("id", "fi_$k"),
-                                name = it2.optString("name", ""),
-                                percent = it2.optDouble("percent", 0.0),
-                            )
-                        )
-                    }
-                }
-                s.formulas.add(f)
+            }
+        }
+
+        o.optJSONObject("timer")?.let { j ->
+            val minutes = j.optInt("minutes", 0)
+            if (minutes > 0) {
+                s.timer = BakeTimer(
+                    productName = j.optString("productName", ""),
+                    tempC = j.optInt("tempC", 0),
+                    minutes = minutes,
+                    endAt = j.optLong("endAt", 0L),
+                    pausedLeft = j.optLong("pausedLeft", -1L),
+                )
             }
         }
         return s
     }
 }
-
-// ============================================================
-//  小工具
-// ============================================================
-
-object Fmt {
-    /** 把用户输入的「1,5」「 2.0 」这类字符串读成数字 */
-    fun num(v: String): Double? = v.trim().replace(',', '.').toDoubleOrNull()
-
-    fun g(v: Double): String = String.format(Locale.US, "%.1f", v)
-
-    fun pct(v: Double): String = String.format(Locale.US, "%.2f", v)
-}
-
-fun AppState.formulaOf(id: String?): Formula? = if (id == null) null else formulas.firstOrNull { it.id == id }
-
-fun AppState.productOf(id: String?): Product? = if (id == null) null else products.firstOrNull { it.id == id }
-
-fun AppState.productByName(name: String?): Product? =
-    if (name.isNullOrBlank()) null else products.firstOrNull { it.name == name }

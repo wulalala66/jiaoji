@@ -23,27 +23,13 @@ class RepoTest {
     @Before
     fun setup() {
         Repo.I.init(RuntimeEnvironment.getApplication())
-        Repo.I.clearFormulas()
-        Repo.I.updateSettings { s -> s.copy(ai = AiSettings()) }
+        Repo.I.clearDensityLog()
+        Repo.I.stopTimer()
+        Repo.I.importJson(Codec.encode(AppState(products = Defaults.products())))
     }
 
     private fun state() = Repo.I.state.value
     private fun persisted() = Repo.read(RuntimeEnvironment.getApplication())
-
-    // ---------------- 设置 ----------------
-
-    @Test
-    fun aiSettingsPersistAcrossReload() {
-        Repo.I.updateSettings { s ->
-            s.copy(ai = s.ai.copy(baseUrl = "https://api.example.com/v1", model = "gpt-4o-mini", thinking = "low"))
-        }
-        assertEquals("https://api.example.com/v1", state().settings.ai.baseUrl)
-        assertEquals("low", state().settings.ai.thinking)
-
-        Repo.I.reload()
-        assertEquals("重新读盘后地址还在", "https://api.example.com/v1", state().settings.ai.baseUrl)
-        assertEquals("gpt-4o-mini", persisted().settings.ai.model)
-    }
 
     // ---------------- 产品条件表 ----------------
 
@@ -138,105 +124,86 @@ class RepoTest {
         assertNull("同名不该建第二个", b)
     }
 
-    // ---------------- 配料 ----------------
+    // ---------------- 烘烤计时 ----------------
 
     @Test
-    fun formulaGramsAndPercentFollowTotal() {
-        val id = Repo.I.addFormula("测试配方", 600.0)
-        Repo.I.addFormulaItem(id, "A", 25.0)
-        Repo.I.addFormulaItem(id, "B", 75.0)
-        var f = state().formulaOf(id)!!
-        assertEquals("合计应为 100%", 100.0, f.sumPercent(), 1e-6)
-        assertEquals("25% 的克数", 150.0, f.gramsOf(f.items[0]), 1e-6)
-        assertTrue("凑满了", f.isComplete())
+    fun timerCountsDownAndCanPause() {
+        val now = 1_000_000L
+        Repo.I.startTimer("安徽万安", 170, 20, now)
+        val t = state().timer!!
+        assertEquals(20 * 60_000L, t.remaining(now))
+        assertEquals("安徽万安 · 170℃", t.label())
 
-        Repo.I.setFormulaTotal(id, 1000.0)
-        f = state().formulaOf(id)!!
-        assertEquals("改总量不动百分比", 25.0, f.items[0].percent, 1e-6)
-        assertEquals("克数跟着变", 250.0, f.gramsOf(f.items[0]), 1e-6)
+        Repo.I.pauseTimer(now + 60_000L)
+        val p = state().timer!!
+        assertTrue("应该处于暂停", p.paused)
+        assertEquals("暂停后剩余时间冻住", 19 * 60_000L, p.remaining(now + 600_000L))
+
+        Repo.I.resumeTimer(now + 600_000L)
+        val r = state().timer!!
+        assertTrue(!r.paused)
+        assertEquals("继续后从剩余时间接着走", 19 * 60_000L, r.remaining(now + 600_000L))
+
+        Repo.I.stopTimer()
+        assertNull(state().timer)
     }
 
     @Test
-    fun fillRestFillsTheLastGap() {
-        val id = Repo.I.addFormula("补差", 600.0)
-        Repo.I.addFormulaItem(id, "A", 30.0)
-        val b = Repo.I.addFormulaItem(id, "B", 20.0)
-        val f0 = state().formulaOf(id)!!
-        assertEquals("还差 50%", 50.0, f0.restPercent(), 1e-6)
-
-        Repo.I.fillFormulaRest(id, b)
-        val f = state().formulaOf(id)!!
-        assertEquals(100.0, f.sumPercent(), 1e-6)
-        assertEquals("B 应该变成 70%", 70.0, f.items.first { it.id == b }.percent, 1e-6)
+    fun timerSurvivesReload() {
+        val now = System.currentTimeMillis()
+        Repo.I.startTimer("焊缝胶", 140, 30, now)
+        Repo.I.reload()
+        val t = state().timer
+        assertNotNull("重新读盘后计时还在", t)
+        assertEquals("焊缝胶", t!!.productName)
+        assertEquals(30, t.minutes)
     }
 
     @Test
-    fun formulaItemEditAndRemove() {
-        val id = Repo.I.addFormula("增删改", 600.0)
-        val a = Repo.I.addFormulaItem(id, "A", 10.0)
-        Repo.I.updateFormulaItem(id, a, name = "A2", percent = 12.5)
-        val item = state().formulaOf(id)!!.items.first()
-        assertEquals("A2", item.name)
-        assertEquals(12.5, item.percent, 1e-6)
+    fun startingAnotherTimerReplacesTheOldOne() {
+        Repo.I.startTimer("A", 150, 10)
+        Repo.I.startTimer("B", 180, 20)
+        assertEquals("B", state().timer?.productName)
+    }
 
-        Repo.I.updateFormulaItem(id, a, percent = 500.0)
-        assertEquals("百分比要夹到 0~100", 100.0, state().formulaOf(id)!!.items.first().percent, 1e-6)
+    // ---------------- 比重历史 ----------------
 
-        Repo.I.removeFormulaItem(id, a)
-        assertTrue("应该删掉了", state().formulaOf(id)!!.items.isEmpty())
+    @Test
+    fun densityRecordKeepsInputsAndResults() {
+        val id = Repo.I.addDensityRecord(2.9, 1.82, 4.42, 2.26, 4.38, 2.26)
+        val rec = state().densityLog.first()
+        assertEquals(id, rec.id)
+        assertEquals(2.9, rec.m1, 1e-9)
+        assertEquals(2.26, rec.m6, 1e-9)
+        assertEquals(1.4074, rec.specific!!, 1e-4)
+        assertEquals(97.368, rec.solid!!, 1e-3)
+        assertEquals(-3.704, rec.foam!!, 1e-3)
     }
 
     @Test
-    fun formulaDuplicateKeepsMetaAndItems() {
-        val id = Repo.I.addFormula("原件", 600.0)
-        Repo.I.updateFormula(id) {
-            it.purpose = "降低粘度"
-            it.cure = "140*30"
-        }
-        Repo.I.addFormulaItem(id, "D1NP", 26.33)
+    fun densityLogNewestFirstAndCapped() {
+        repeat(3) { Repo.I.addDensityRecord(1.0 + it, 0.5, 2.0, 1.0, 0.0, 0.0) }
+        assertEquals(3, state().densityLog.size)
+        assertEquals("最新的排最前面", 3.0, state().densityLog.first().m1, 1e-9)
 
-        val copyId = Repo.I.duplicateFormula(id)
-        val copy = state().formulaOf(copyId)!!
-        assertEquals("原件 副本", copy.name)
-        assertEquals("实验目的要一起复制", "降低粘度", copy.purpose)
-        assertEquals("固化温度要一起复制", "140*30", copy.cure)
-        assertEquals(1, copy.items.size)
-        assertTrue("副本的原料 id 必须是新的", copy.items[0].id != state().formulaOf(id)!!.items[0].id)
+        Repo.I.removeDensityRecord(state().densityLog.first().id)
+        assertEquals(2, state().densityLog.size)
 
-        Repo.I.removeFormula(id)
-        assertNull(state().formulaOf(id))
-        assertNotNull("删原件不能影响副本", state().formulaOf(copyId))
+        Repo.I.clearDensityLog()
+        assertTrue(state().densityLog.isEmpty())
+    }
+
+    @Test
+    fun densityLogSurvivesExportImport() {
+        Repo.I.addDensityRecord(2.9, 1.82, 4.42, 2.26, 4.38, 2.26)
+        val json = Repo.I.exportJson()
+        Repo.I.clearDensityLog()
+        assertTrue(Repo.I.importJson(json))
+        assertEquals(1, state().densityLog.size)
+        assertEquals(1.4074, state().densityLog.first().specific!!, 1e-4)
     }
 
     // ---------------- 备份 ----------------
-
-    @Test
-    fun exportImportRoundTripKeepsFormulasAndProducts() {
-        val fid = Repo.I.addFormula("导出测试", 750.0)
-        Repo.I.addFormulaItem(fid, "D1NP", 26.33)
-        Repo.I.updateFormula(fid) { it.cure = "150*25" }
-        val pid = Repo.I.addProduct("导出客户", listOf(BakePreset(155, 35)))
-
-        val json = Repo.I.exportJson()
-
-        // 清空后重新导入，配方和条件表都必须回来（这里曾经漏掉过）
-        Repo.I.clearFormulas()
-        Repo.I.removeProduct(pid!!)
-        assertNull(state().formulaOf(fid))
-        assertNull(state().productOf(pid))
-
-        assertTrue("导入应该成功", Repo.I.importJson(json))
-        val f = state().formulaOf(fid)
-        assertNotNull("配方必须被导入", f)
-        assertEquals("导出测试", f!!.name)
-        assertEquals(750.0, f.totalG, 1e-6)
-        assertEquals("150*25", f.cure)
-        assertEquals(1, f.items.size)
-
-        val p = state().productOf(pid)
-        assertNotNull("条件表必须被导入", p)
-        assertEquals(155, p!!.bakes.first().tempC)
-    }
 
     @Test
     fun importJsonRejectsGarbage() {
@@ -259,16 +226,6 @@ class RepoTest {
         assertNotNull(state().formulaOf("f1"))
         assertEquals("https://x/v1", state().settings.ai.baseUrl)
         assertEquals("老产品", state().productOf("p1")?.name)
-    }
-
-    @Test
-    fun stateSurvivesReload() {
-        val id = Repo.I.addFormula("重启也要在", 600.0)
-        Repo.I.addFormulaItem(id, "A", 42.0)
-        Repo.I.reload()
-        val f = state().formulaOf(id)
-        assertNotNull("重新读盘后配方还在", f)
-        assertEquals(42.0, f!!.items.first().percent, 1e-6)
     }
 
     @Test

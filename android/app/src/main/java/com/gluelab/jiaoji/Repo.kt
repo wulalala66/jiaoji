@@ -8,8 +8,8 @@ import java.util.UUID
 /**
  * 全局状态 + 全部写操作。
  *
- * 状态整体不可变地替换：每次写操作都先 Codec 深拷贝一份、改完再整体发布，
- * 这样 Compose 拿到的永远是一致快照，不会出现「读到一半被别人改了」。
+ * 状态整体不可变地替换：每次写操作都先深拷贝一份、改完再整体发布，
+ * 这样 Compose 拿到的永远是一致快照。
  * 存储：SharedPreferences 里一坨 JSON，与网页版完全同构，两边备份可以互导。
  */
 class Repo private constructor() {
@@ -65,17 +65,6 @@ class Repo private constructor() {
         write(c, next)
     }
 
-    // ---------------- 设置 ----------------
-
-    /**
-     * 改设置。注意 block 必须「返回新的 Settings」（data class copy）——
-     * 写成 (Settings) -> Unit 会让 `it.copy(...)` 的返回值被丢掉，
-     * 表现就是设置页开关怎么点都没反应。
-     */
-    fun updateSettings(block: (Settings) -> Settings) {
-        mutate { s -> s.settings = block(s.settings) }
-    }
-
     // ---------------- 产品条件表 ----------------
 
     fun addProduct(
@@ -123,114 +112,90 @@ class Repo private constructor() {
         mutate { s -> s.products.removeAll { it.id == id } }
     }
 
-    // ---------------- 配料 / 配方 ----------------
+    // ---------------- 烘烤计时 ----------------
 
-    fun addFormula(name: String = "", totalG: Double = 600.0): String {
-        var id = ""
+    /** 点一下条件就开始计时；同一时间只跑一个，新的会顶掉旧的 */
+    fun startTimer(productName: String, tempC: Int, minutes: Int, now: Long = System.currentTimeMillis()) {
+        if (minutes <= 0) return
         mutate { s ->
-            val f = Formula(
-                id = "f_" + uid(),
-                name = name.ifBlank { "配方 " + (s.formulas.size + 1) },
-                totalG = if (totalG > 0) totalG else 600.0,
+            s.timer = BakeTimer(
+                productName = productName,
+                tempC = tempC,
+                minutes = minutes,
+                endAt = now + minutes * 60_000L,
+                pausedLeft = -1L,
             )
-            s.formulas.add(f)
-            id = f.id
+        }
+    }
+
+    fun pauseTimer(now: Long = System.currentTimeMillis()) {
+        mutate { s ->
+            val t = s.timer ?: return@mutate
+            if (t.paused) return@mutate
+            t.pausedLeft = t.remaining(now)
+        }
+    }
+
+    fun resumeTimer(now: Long = System.currentTimeMillis()) {
+        mutate { s ->
+            val t = s.timer ?: return@mutate
+            if (!t.paused) return@mutate
+            t.endAt = now + t.pausedLeft.coerceAtLeast(0)
+            t.pausedLeft = -1L
+        }
+    }
+
+    fun stopTimer() {
+        mutate { s -> s.timer = null }
+    }
+
+    // ---------------- 比重历史 ----------------
+
+    /** 保存一次测试。输入和结果一起存，最多留 200 条 */
+    fun addDensityRecord(
+        m1: Double, m2: Double, m3: Double, m4: Double, m5: Double, m6: Double,
+        now: Long = System.currentTimeMillis(),
+    ): String {
+        val r = DensityCalc.calc(m1, m2, m3, m4, m5, m6)
+        val id = "d_" + uid()
+        mutate { s ->
+            s.densityLog.add(
+                0,
+                DensityRecord(
+                    id = id, at = now,
+                    m1 = m1, m2 = m2, m3 = m3, m4 = m4, m5 = m5, m6 = m6,
+                    specific = r.specific, solid = r.solid, foam = r.foam,
+                )
+            )
+            while (s.densityLog.size > 200) s.densityLog.removeAt(s.densityLog.size - 1)
         }
         return id
     }
 
-    fun updateFormula(id: String, block: (Formula) -> Unit) {
-        mutate { s -> s.formulas.firstOrNull { it.id == id }?.let(block) }
+    fun removeDensityRecord(id: String) {
+        mutate { s -> s.densityLog.removeAll { it.id == id } }
     }
 
-    fun setFormulaTotal(id: String, totalG: Double) {
-        updateFormula(id) { it.totalG = if (totalG > 0) totalG else it.totalG }
-    }
-
-    fun addFormulaItem(id: String, name: String = "", percent: Double = 0.0): String {
-        var itemId = ""
-        updateFormula(id) { f ->
-            val it2 = FormulaItem(id = "fi_" + uid(), name = name, percent = percent)
-            f.items.add(it2)
-            itemId = it2.id
-        }
-        return itemId
-    }
-
-    fun updateFormulaItem(id: String, itemId: String, name: String? = null, percent: Double? = null) {
-        updateFormula(id) { f ->
-            f.items.firstOrNull { it.id == itemId }?.let { it2 ->
-                if (name != null) it2.name = name
-                if (percent != null) it2.percent = percent.coerceIn(0.0, 100.0)
-            }
-        }
-    }
-
-    fun removeFormulaItem(id: String, itemId: String) {
-        updateFormula(id) { f -> f.items.removeAll { it.id == itemId } }
-    }
-
-    /** 把剩下的量补给某一行（凑满 100%） */
-    fun fillFormulaRest(id: String, itemId: String) {
-        updateFormula(id) { f ->
-            val others = f.items.filter { it.id != itemId }.sumOf { it.percent }
-            f.items.firstOrNull { it.id == itemId }?.percent = (100.0 - others).coerceAtLeast(0.0)
-        }
-    }
-
-    fun removeFormula(id: String) {
-        mutate { s -> s.formulas.removeAll { it.id == id } }
-    }
-
-    fun duplicateFormula(id: String): String {
-        var newId = ""
-        mutate { s ->
-            val src = s.formulas.firstOrNull { it.id == id } ?: return@mutate
-            val copy = Formula(
-                id = "f_" + uid(),
-                name = src.name + " 副本",
-                totalG = src.totalG,
-                note = src.note,
-                purpose = src.purpose,
-                cure = src.cure,
-                items = src.items.map { FormulaItem(id = "fi_" + uid(), name = it.name, percent = it.percent) }
-                    .toMutableList(),
-            )
-            s.formulas.add(copy)
-            newId = copy.id
-        }
-        return newId
-    }
-
-    fun clearFormulas() {
-        mutate { s -> s.formulas.clear() }
+    fun clearDensityLog() {
+        mutate { s -> s.densityLog.clear() }
     }
 
     // ---------------- 备份 ----------------
 
-    /**
-     * 导出备份。**故意把 API Key 清掉**：
-     * 备份经常通过微信/邮件转来转去，带着 Key 等于把 Key 发出去了。
-     * 导入之后重新填一次 Key 就行。
-     */
-    fun exportJson(): String {
-        val safe = Codec.decode(Codec.encode(_state.value))
-        safe.settings.ai.apiKey = ""
-        return Codec.encode(safe)
-    }
+    fun exportJson(): String = Codec.encode(_state.value)
 
     /**
      * 导入备份：整体替换。
-     * 老版本的备份里还有 sampling / samples / bakes 这些已经下线的字段，
-     * Codec 会直接忽略它们，只取还在用的配方、条件表和 AI 配置。
+     * 老版本的备份里还有 formulas / settings.ai / sampling 这些已经下线的字段，
+     * Codec 会直接忽略它们，只取还在用的产品条件表。
      */
     fun importJson(raw: String): Boolean {
         return try {
             val s = Codec.decode(raw)
             mutate { cur ->
-                cur.settings = s.settings
                 cur.products = s.products
-                cur.formulas = s.formulas
+                cur.densityLog = s.densityLog
+                cur.timer = s.timer
             }
             true
         } catch (e: Exception) {
