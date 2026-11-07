@@ -60,7 +60,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 /**
@@ -84,6 +87,8 @@ fun ProductsScreen(state: AppState) {
     var dragFrom by remember { mutableIntStateOf(-1) }
     var dragTo by remember { mutableIntStateOf(-1) }
     var dragHeight by remember { mutableIntStateOf(0) }
+    // 手指在列表坐标系里的 Y：给「停住也滚」的定时器用
+    val dragPointerY = remember { mutableFloatStateOf(0f) }
     val ctx = LocalContext.current
     val listState = rememberLazyListState()
     val density = LocalDensity.current
@@ -211,9 +216,10 @@ fun ProductsScreen(state: AppState) {
                             active = draggingId == p.id,
                             modifier = Modifier.pointerInput(p.id) {
                                 // PointerInputScope 本身是 Density，阈值在这里换px
-                                val edgeZonePx = 72.dp.toPx()
-                                val maxStepPx = 14.dp.toPx()
+                                val edgeZonePx = 80.dp.toPx()
+                                val maxStepPx = 24.dp.toPx()
                                 awaitEachGesture {
+                                  coroutineScope {
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     // 一按下就吃掉，父级的长按编辑收不到，两个手势不再打架
                                     down.consume()
@@ -225,6 +231,39 @@ fun ProductsScreen(state: AppState) {
                                     dragHeight = vis.size
                                     dragDelta = 0f
                                     var lastY = down.position.y
+
+                                    // 关键：自动滚动跑在独立的定时器里。
+                                    // 原来只在每个指针事件里推一次，手指停在边缘不动就不滚了，
+                                    // 结果只能一下一下地蹭。
+                                    val autoScroll = launch {
+                                        while (isActive) {
+                                            val info = listState.layoutInfo
+                                            val y = dragPointerY.value
+                                            val step = when {
+                                                y > info.viewportEndOffset - edgeZonePx ->
+                                                    ((y - (info.viewportEndOffset - edgeZonePx)) / edgeZonePx)
+                                                        .coerceIn(0f, 1f) * maxStepPx
+                                                y < info.viewportStartOffset + edgeZonePx ->
+                                                    -(((info.viewportStartOffset + edgeZonePx) - y) / edgeZonePx)
+                                                        .coerceIn(0f, 1f) * maxStepPx
+                                                else -> 0f
+                                            }
+                                            if (step != 0f) {
+                                                listState.dispatchRawDelta(step)
+                                                // 滚动之后目标位置要跟着变
+                                                val fresh = listState.layoutInfo.visibleItemsInfo
+                                                    .firstOrNull { it.key == p.id }
+                                                if (fresh != null) {
+                                                    val center = fresh.offset + dragHeight / 2f + dragDelta
+                                                    listState.layoutInfo.visibleItemsInfo
+                                                        .firstOrNull { center >= it.offset && center < it.offset + it.size }
+                                                        ?.let { if (it.key != p.id) dragTo = it.index }
+                                                }
+                                            }
+                                            delay(16)
+                                        }
+                                    }
+
                                     try {
                                         while (true) {
                                             val ev = awaitPointerEvent()
@@ -234,31 +273,20 @@ fun ProductsScreen(state: AppState) {
                                             dragDelta += ch.position.y - lastY
                                             lastY = ch.position.y
 
+                                            // 记录手指在列表里的绝对位置
                                             val info = listState.layoutInfo
-                                            // 拖到上下边缘时自动滚动（列表比屏幕长的时候必需）
-                                            val pointerY = (info.visibleItemsInfo
-                                                .firstOrNull { it.key == p.id }?.offset ?: vis.offset) +
-                                                down.position.y + dragDelta
-                                            val edge = edgeZonePx
-                                            val step = when {
-                                                pointerY > info.viewportEndOffset - edge ->
-                                                    ((pointerY - (info.viewportEndOffset - edge)) / edge)
-                                                        .coerceIn(0f, 1f) * maxStepPx
-                                                pointerY < info.viewportStartOffset + edge ->
-                                                    -(((info.viewportStartOffset + edge) - pointerY) / edge)
-                                                        .coerceIn(0f, 1f) * maxStepPx
-                                                else -> 0f
-                                            }
-                                            if (step != 0f) listState.dispatchRawDelta(step)
+                                            val here = info.visibleItemsInfo
+                                                .firstOrNull { it.key == p.id } ?: continue
+                                            dragPointerY.value = here.offset + ch.position.y + dragDelta
 
-                                            // 每一帧都重新取布局：自动滚动之后 vis 里的 offset 已经过期
-                                            val fresh = listState.layoutInfo.visibleItemsInfo
-                                                .firstOrNull { it.key == p.id } ?: vis
-                                            val center = fresh.offset + dragHeight / 2f + dragDelta
-                                            val over = listState.layoutInfo.visibleItemsInfo
+                                            // 目标位置：被拖卡片中心落在哪一项上
+                                            val center = here.offset + dragHeight / 2f + dragDelta
+                                            info.visibleItemsInfo
                                                 .firstOrNull { center >= it.offset && center < it.offset + it.size }
-                                            if (over != null && over.key != p.id) dragTo = over.index
+                                                ?.let { if (it.key != p.id) dragTo = it.index }
                                         }
+                                    } finally {
+                                        autoScroll.cancel()
                                     } finally {
                                         val to = dragTo
                                         draggingId = null
@@ -268,6 +296,7 @@ fun ProductsScreen(state: AppState) {
                                         // 松手才提交一次：整个拖动过程只写一次库
                                         if (to >= 0 && to != vis.index) Repo.I.moveProduct(p.id, to)
                                     }
+                                  }
                                 }
                             },
                         )

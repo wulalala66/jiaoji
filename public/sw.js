@@ -7,7 +7,7 @@
    缓存名带版本号：发版后旧缓存会在 activate 里被清掉。
    ============================================================ */
 
-const VERSION = "3.2.0";
+const VERSION = "3.2.1";
 const CACHE = `jiaoji-${VERSION}`;
 const CORE = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon.svg", "./css/app.css"];
 
