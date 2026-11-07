@@ -538,6 +538,8 @@ export function renderProducts(root) {
 
   // ---------------------------------------------------------------- 拖动排序
   let dragging = null;
+  let dragAcc = 0;
+  let lastY = 0;
 
   list.addEventListener("pointerdown", (e) => {
     const handle = e.target.closest?.(".drag-handle");
@@ -547,13 +549,20 @@ export function renderProducts(root) {
     e.preventDefault();
     e.stopPropagation();
     dragging = card;
+    dragAcc = 0;
+    lastY = e.clientY;
     card.classList.add("dragging");
+    card.style.transform = "";
     handle.setPointerCapture?.(e.pointerId);
   });
 
   list.addEventListener("pointermove", (e) => {
     if (!dragging) return;
     e.preventDefault();
+    dragAcc += e.clientY - lastY;
+    lastY = e.clientY;
+    dragging.style.transform = `translateY(${dragAcc}px) scale(1.02)`;
+
     const cards = [...list.querySelectorAll(".product-card")].filter((c) => c !== dragging);
     // 找到指针落在哪张卡上，插到它前面或后面
     const over = cards.find((c) => {
@@ -562,13 +571,19 @@ export function renderProducts(root) {
     });
     if (!over) return;
     const r = over.getBoundingClientRect();
-    if (e.clientY < r.top + r.height / 2) list.insertBefore(dragging, over);
-    else list.insertBefore(dragging, over.nextSibling);
+    const before = e.clientY < r.top + r.height / 2;
+    const nextNode = before ? over : over.nextSibling;
+    if (nextNode === dragging || nextNode === dragging.nextSibling) return;
+    list.insertBefore(dragging, nextNode);
+    // 换位后扣掉一格，卡片视觉上继续跟着手指
+    dragAcc += before ? -r.height : r.height;
+    dragging.style.transform = `translateY(${dragAcc}px) scale(1.02)`;
   });
 
   const endDrag = () => {
     if (!dragging) return;
     dragging.classList.remove("dragging");
+    dragging.style.transform = "";
     dragging = null;
     const ids = [...list.querySelectorAll(".product-card")].map((c) => c.dataset.id).filter(Boolean);
     if (ids.length) actions.reorderProducts(ids);

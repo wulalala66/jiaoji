@@ -50,6 +50,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -73,6 +75,8 @@ fun ProductsScreen(state: AppState) {
     var choosing by remember { mutableStateOf<Product?>(null) }
     var confirmStop by remember { mutableStateOf(false) }
     var draggingId by remember { mutableStateOf<String?>(null) }
+    // 手指相对「当前槽位」的位移：换位后减去一格的 height，卡片就一直跟着手指
+    var dragOffset by remember { mutableFloatStateOf(0f) }
     val ctx = LocalContext.current
     val listState = rememberLazyListState()
     val density = LocalDensity.current
@@ -138,6 +142,18 @@ fun ProductsScreen(state: AppState) {
         ) {
             itemsIndexed(list, key = { _, p -> p.id }) { index, p ->
                 AppCard(
+                    modifier = Modifier
+                        .zIndex(if (draggingId == p.id) 1f else 0f)
+                        .graphicsLayer {
+                            if (draggingId == p.id) {
+                                translationY = dragOffset
+                                scaleX = 1.02f
+                                scaleY = 1.02f
+                                shadowElevation = 10.dp.toPx()
+                            }
+                        }
+                        // 别的卡片平滑让位；被拖的那张不参与，否则会和手指打架
+                        .then(if (draggingId == p.id) Modifier else Modifier.animateItem()),
                     onClick = {
                         when {
                             p.bakes.isEmpty() -> Toast0(ctx, "「${p.name}」还没有烘烤条件，长按可以编辑")
@@ -182,8 +198,8 @@ fun ProductsScreen(state: AppState) {
                                     // 长按编辑就不会被触发（之前两个手势打架，把手根本拖不动）
                                     down.consume()
                                     draggingId = p.id
+                                    dragOffset = 0f
                                     var lastY = down.position.y
-                                    var acc = 0f
                                     try {
                                         while (true) {
                                             val event = awaitPointerEvent()
@@ -192,26 +208,26 @@ fun ProductsScreen(state: AppState) {
                                             val dy = ch.position.y - lastY
                                             lastY = ch.position.y
                                             ch.consume()
-                                            acc += dy
+                                            dragOffset += dy
 
                                             val info = listState.layoutInfo.visibleItemsInfo
                                                 .firstOrNull { it.key == p.id }
-                                            val threshold = (info?.size ?: 160) * 0.5f
-                                            // 用实时状态算当前位置，避免闭包里 index 过期
+                                            val h = (info?.size ?: 160).toFloat()
                                             val prods = Repo.I.state.value.products
                                             val cur = prods.indexOfFirst { it.id == p.id }
-                                            val target = when {
-                                                acc > threshold -> cur + 1
-                                                acc < -threshold -> cur - 1
-                                                else -> -1
-                                            }
-                                            if (cur >= 0 && target in prods.indices) {
-                                                Repo.I.moveProduct(p.id, target)
-                                                acc = 0f
+                                            if (cur < 0) continue
+
+                                            if (dragOffset > h * 0.5f && cur < prods.size - 1) {
+                                                Repo.I.moveProduct(p.id, cur + 1)
+                                                dragOffset -= h   // 扣掉一格，视觉上继续跟手
+                                            } else if (dragOffset < -h * 0.5f && cur > 0) {
+                                                Repo.I.moveProduct(p.id, cur - 1)
+                                                dragOffset += h
                                             }
                                         }
                                     } finally {
                                         draggingId = null
+                                        dragOffset = 0f
                                     }
                                 }
                             },
