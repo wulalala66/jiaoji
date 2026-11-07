@@ -20,7 +20,10 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import kotlin.math.abs
@@ -74,9 +77,13 @@ fun ProductsScreen(state: AppState) {
     var creating by remember { mutableStateOf(false) }
     var choosing by remember { mutableStateOf<Product?>(null) }
     var confirmStop by remember { mutableStateOf(false) }
+    // 拖动期间只改这几个内存状态，一次都不碰数据源 —— 松手才提交。
+    // 参考 sh.calvin.reorderable 的做法：数据不动，靠 translationY 让位。
     var draggingId by remember { mutableStateOf<String?>(null) }
-    // 手指相对「当前槽位」的位移：换位后减去一格的 height，卡片就一直跟着手指
-    var dragOffset by remember { mutableFloatStateOf(0f) }
+    var dragDelta by remember { mutableFloatStateOf(0f) }
+    var dragFrom by remember { mutableIntStateOf(-1) }
+    var dragTo by remember { mutableIntStateOf(-1) }
+    var dragHeight by remember { mutableIntStateOf(0) }
     val ctx = LocalContext.current
     val listState = rememberLazyListState()
     val density = LocalDensity.current
@@ -141,19 +148,30 @@ fun ProductsScreen(state: AppState) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             itemsIndexed(list, key = { _, p -> p.id }) { index, p ->
+                // 别的卡片要往哪个方向让位：被拖的在往下走，中间的往上让一格，反之亦然
+                val targetShift = when {
+                    draggingId == null || dragTo < 0 || dragFrom < 0 || draggingId == p.id -> 0f
+                    index in (dragFrom + 1)..dragTo -> -dragHeight.toFloat()
+                    index in dragTo until dragFrom -> dragHeight.toFloat()
+                    else -> 0f
+                }
+                val shift by animateFloatAsState(
+                    targetValue = targetShift,
+                    animationSpec = spring(dampingRatio = 0.85f, stiffness = 900f),
+                    label = "shift",
+                )
                 AppCard(
                     modifier = Modifier
                         .zIndex(if (draggingId == p.id) 1f else 0f)
                         .graphicsLayer {
-                            if (draggingId == p.id) {
-                                translationY = dragOffset
+                            val dragging = draggingId == p.id
+                            translationY = if (dragging) dragDelta else shift
+                            if (dragging) {
                                 scaleX = 1.02f
                                 scaleY = 1.02f
-                                shadowElevation = 10.dp.toPx()
+                                shadowElevation = 12.dp.toPx()
                             }
-                        }
-                        // 别的卡片平滑让位；被拖的那张不参与，否则会和手指打架
-                        .then(if (draggingId == p.id) Modifier else Modifier.animateItem()),
+                        },
                     onClick = {
                         when {
                             p.bakes.isEmpty() -> Toast0(ctx, "「${p.name}」还没有烘烤条件，长按可以编辑")
@@ -194,40 +212,39 @@ fun ProductsScreen(state: AppState) {
                             modifier = Modifier.pointerInput(p.id) {
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
-                                    // 关键：一按下就吃掉，父级的 combinedClickable 收不到这次按下，
-                                    // 长按编辑就不会被触发（之前两个手势打架，把手根本拖不动）
+                                    // 一按下就吃掉，父级的长按编辑收不到，两个手势不再打架
                                     down.consume()
+                                    val vis = listState.layoutInfo.visibleItemsInfo
+                                        .firstOrNull { it.key == p.id } ?: return@awaitEachGesture
                                     draggingId = p.id
-                                    dragOffset = 0f
+                                    dragFrom = vis.index
+                                    dragTo = vis.index
+                                    dragHeight = vis.size
+                                    dragDelta = 0f
                                     var lastY = down.position.y
                                     try {
                                         while (true) {
-                                            val event = awaitPointerEvent()
-                                            val ch = event.changes.firstOrNull { it.id == down.id } ?: break
+                                            val ev = awaitPointerEvent()
+                                            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
                                             if (!ch.pressed) break
-                                            val dy = ch.position.y - lastY
-                                            lastY = ch.position.y
                                             ch.consume()
-                                            dragOffset += dy
+                                            dragDelta += ch.position.y - lastY
+                                            lastY = ch.position.y
 
-                                            val info = listState.layoutInfo.visibleItemsInfo
-                                                .firstOrNull { it.key == p.id }
-                                            val h = (info?.size ?: 160).toFloat()
-                                            val prods = Repo.I.state.value.products
-                                            val cur = prods.indexOfFirst { it.id == p.id }
-                                            if (cur < 0) continue
-
-                                            if (dragOffset > h * 0.5f && cur < prods.size - 1) {
-                                                Repo.I.moveProduct(p.id, cur + 1)
-                                                dragOffset -= h   // 扣掉一格，视觉上继续跟手
-                                            } else if (dragOffset < -h * 0.5f && cur > 0) {
-                                                Repo.I.moveProduct(p.id, cur - 1)
-                                                dragOffset += h
-                                            }
+                                            // 用「被拖卡片当前中心」落在哪一项上来决定目标位置
+                                            val center = vis.offset + dragHeight / 2f + dragDelta
+                                            val over = listState.layoutInfo.visibleItemsInfo
+                                                .firstOrNull { center >= it.offset && center < it.offset + it.size }
+                                            if (over != null && over.key != p.id) dragTo = over.index
                                         }
                                     } finally {
+                                        val to = dragTo
                                         draggingId = null
-                                        dragOffset = 0f
+                                        dragDelta = 0f
+                                        dragFrom = -1
+                                        dragTo = -1
+                                        // 松手才提交一次：整个拖动过程只写一次库
+                                        if (to >= 0 && to != vis.index) Repo.I.moveProduct(p.id, to)
                                     }
                                 }
                             },
