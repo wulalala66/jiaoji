@@ -349,11 +349,6 @@ export function renderProducts(root) {
             : null
         )
       );
-      // 拖动把手（搜索时不显示，避免顺序看着乱）
-      if (!keyword) {
-        const handle = el("span", { class: "drag-handle", "aria-label": "按住拖动排序", title: "按住拖动排序" }, "≡");
-        card.appendChild(handle);
-      }
       card.addEventListener("click", (e) => {
         if (card.dataset.longpressed === "1") {
           card.dataset.longpressed = "0";
@@ -468,6 +463,30 @@ export function renderProducts(root) {
         el("p", { class: "hint" }, "例：安徽万安 4 块 —— 1 块新板写「2mm 流挂」，3 块旧板空着。")
       );
 
+      // 排序：1 = 最前面
+      const maxPos = existing ? getState().products.length : getState().products.length + 1;
+      let pos = existing ? getState().products.findIndex((x) => x.id === existing.id) + 1 : maxPos;
+      if (pos < 1) pos = 1;
+      const posLabel = el("div", { class: "field-label" }, "");
+      const posChips = el("div", { class: "chips" });
+      const drawPos = () => {
+        posLabel.textContent = `排序：现在是第 ${pos} 位（共 ${maxPos} 条）`;
+        clear(posChips);
+        for (let n = 1; n <= maxPos; n++) {
+          posChips.appendChild(
+            el("button", {
+              class: `chip-btn${n === pos ? " on" : ""}`,
+              type: "button",
+              onclick: () => {
+                pos = n;
+                drawPos();
+              },
+            }, String(n))
+          );
+        }
+      };
+      drawPos();
+
       const collectBakes = () => {
         const out = [];
         rows.querySelectorAll(".bake-row").forEach((row) => {
@@ -481,6 +500,11 @@ export function renderProducts(root) {
         return out;
       };
       const collectPlates = () => plates.map((pl) => ({ id: pl.id || "", fresh: !!pl.fresh, note: (pl.note || "").trim() }));
+
+      body.appendChild(el("div", { class: "field-label", style: { "margin-top": "6px" } }, ""));
+      body.appendChild(posLabel);
+      body.appendChild(posChips);
+      body.appendChild(el("p", { class: "hint" }, "选 1 就排到最前面。"));
 
       body.appendChild(
         el(
@@ -518,11 +542,16 @@ export function renderProducts(root) {
                   nameInput.focus();
                   return;
                 }
+                let targetId = existing ? existing.id : null;
                 if (existing) actions.updateProduct(existing.id, name, collectBakes(), collectPlates());
-                else if (!actions.addProduct(name, collectBakes(), collectPlates())) {
-                  toast("已经有同名产品了", "warn");
-                  return;
+                else {
+                  targetId = actions.addProduct(name, collectBakes(), collectPlates());
+                  if (!targetId) {
+                    toast("已经有同名产品了", "warn");
+                    return;
+                  }
                 }
+                if (targetId) actions.moveProduct(targetId, pos - 1);
                 close();
                 toast("已保存", "ok");
                 draw();
@@ -535,92 +564,6 @@ export function renderProducts(root) {
       nameInput.focus();
     });
   }
-
-  // ---------------------------------------------------------------- 拖动排序
-  let dragging = null;
-  let dragAcc = 0;
-  let lastY = 0;
-  let pointerY = 0;
-  let autoScrollId = 0;
-
-  // 手指停在边缘时也要一直滚 —— 不能只在 pointermove 里滚
-  function startAutoScroll() {
-    if (autoScrollId) return;
-    const edge = 96;
-    const step = () => {
-      autoScrollId = requestAnimationFrame(() => {
-        if (!dragging) return;
-        const vh = window.innerHeight;
-        if (pointerY > vh - edge) {
-          window.scrollBy(0, ((pointerY - (vh - edge)) / edge) * 22);
-        } else if (pointerY < edge) {
-          window.scrollBy(0, -(((edge - pointerY) / edge) * 22));
-        }
-        step();
-      });
-    };
-    step();
-  }
-
-  function stopAutoScroll() {
-    if (autoScrollId) cancelAnimationFrame(autoScrollId);
-    autoScrollId = 0;
-  }
-
-  list.addEventListener("pointerdown", (e) => {
-    const handle = e.target.closest?.(".drag-handle");
-    if (!handle) return;
-    const card = handle.closest(".product-card");
-    if (!card) return;
-    e.preventDefault();
-    e.stopPropagation();
-    dragging = card;
-    dragAcc = 0;
-    lastY = e.clientY;
-    card.classList.add("dragging");
-    card.style.transform = "";
-    pointerY = e.clientY;
-    startAutoScroll();
-    handle.setPointerCapture?.(e.pointerId);
-  });
-
-  list.addEventListener("pointermove", (e) => {
-    if (!dragging) return;
-    e.preventDefault();
-    dragAcc += e.clientY - lastY;
-    lastY = e.clientY;
-    dragging.style.transform = `translateY(${dragAcc}px) scale(1.02)`;
-
-    pointerY = e.clientY;
-
-    const cards = [...list.querySelectorAll(".product-card")].filter((c) => c !== dragging);
-    // 找到指针落在哪张卡上，插到它前面或后面
-    const over = cards.find((c) => {
-      const r = c.getBoundingClientRect();
-      return e.clientY >= r.top && e.clientY <= r.bottom;
-    });
-    if (!over) return;
-    const r = over.getBoundingClientRect();
-    const before = e.clientY < r.top + r.height / 2;
-    const nextNode = before ? over : over.nextSibling;
-    if (nextNode === dragging || nextNode === dragging.nextSibling) return;
-    list.insertBefore(dragging, nextNode);
-    // 换位后扣掉一格，卡片视觉上继续跟着手指
-    dragAcc += before ? -r.height : r.height;
-    dragging.style.transform = `translateY(${dragAcc}px) scale(1.02)`;
-  });
-
-  const endDrag = () => {
-    if (!dragging) return;
-    stopAutoScroll();
-    dragging.classList.remove("dragging");
-    dragging.style.transform = "";
-    dragging = null;
-    const ids = [...list.querySelectorAll(".product-card")].map((c) => c.dataset.id).filter(Boolean);
-    if (ids.length) actions.reorderProducts(ids);
-  };
-  list.addEventListener("pointerup", endDrag);
-  list.addEventListener("pointercancel", endDrag);
 
   draw();
   drawTimer();

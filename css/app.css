@@ -1116,55 +1116,6 @@ select.input {
   }
 }
 
-/* ---------------------------------------------------------------- 拖动排序 */
-
-.product-card {
-  position: relative;
-  padding-right: 40px;
-  touch-action: pan-y;
-  transition: transform 0.14s ease, box-shadow 0.14s ease;
-}
-
-.drag-handle {
-  position: absolute;
-  right: 6px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 30px;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--muted-2);
-  font-size: 17px;
-  letter-spacing: 1px;
-  border-radius: 9px;
-  cursor: grab;
-  touch-action: none;
-}
-
-.drag-handle:active {
-  background: var(--brand-soft);
-  color: var(--brand);
-  cursor: grabbing;
-}
-
-.product-card.dragging {
-  opacity: 0.94;
-  box-shadow: var(--shadow-float);
-  transform: scale(1.02);
-  z-index: 10;
-  /* 拖动过程中不要过渡，否则会落后于手指 */
-  transition: none;
-  will-change: transform;
-}
-
-/* 拖动时其它卡片让位的观感：降低一点存在感 */
-.product-card.dragging ~ .product-card,
-.list:has(.dragging) .product-card:not(.dragging) {
-  transition: transform 0.14s ease;
-}
-
 /* ---------------------------------------------------------------- 烘烤计时 */
 
 .timer-host {

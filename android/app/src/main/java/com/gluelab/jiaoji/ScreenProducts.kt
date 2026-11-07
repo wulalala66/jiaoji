@@ -80,15 +80,6 @@ fun ProductsScreen(state: AppState) {
     var creating by remember { mutableStateOf(false) }
     var choosing by remember { mutableStateOf<Product?>(null) }
     var confirmStop by remember { mutableStateOf(false) }
-    // 拖动期间维护一份「本地顺序」：被拖的卡片始终待在手底下，
-    // 不会因为自动滚动而被 LazyColumn 回收 —— 之前「甩到顶部就断」就是被回收导致的。
-    // 松手才写一次 Repo。
-    var draggingId by remember { mutableStateOf<String?>(null) }
-    var dragOrder by remember { mutableStateOf<List<String>?>(null) }
-    var dragDelta by remember { mutableFloatStateOf(0f) }
-    var dragHeight by remember { mutableIntStateOf(0) }
-    // 手指在列表坐标系里的 Y：给「停住也滚」的定时器用
-    val dragPointerY = remember { mutableFloatStateOf(0f) }
     val ctx = LocalContext.current
     val listState = rememberLazyListState()
     val density = LocalDensity.current
@@ -98,40 +89,6 @@ fun ProductsScreen(state: AppState) {
         key.isBlank() || p.name.contains(key, true) ||
             p.bakes.any { "${it.tempC} ${it.minutes}".contains(key) }
     }
-    // 拖动时按本地顺序渲染；平时就是正常列表
-    val shown = dragOrder?.let { ids -> ids.mapNotNull { id -> state.products.firstOrNull { it.id == id } } } ?: list
-
-    /** 目标变了：把 id 在本地顺序里挪过去，并抵消这一段槽位位移，卡片继续贴着手 */
-    fun applyTarget(id: String, toIndex: Int, slotDelta: Float) {
-        val order = dragOrder ?: return
-        val from = order.indexOf(id)
-        if (from < 0 || toIndex !in order.indices || toIndex == from) return
-        val next = order.toMutableList()
-        next.removeAt(from)
-        next.add(toIndex, id)
-        dragOrder = next
-        dragDelta -= slotDelta
-    }
-
-    /** 用「被拖卡片当前中心」落在哪一项上，决定新的目标位置 */
-    fun followFinger() {
-        val id = draggingId ?: return
-        val info = listState.layoutInfo
-        val cur = info.visibleItemsInfo.firstOrNull { it.key == id } ?: return
-        val center = cur.offset + dragHeight / 2f + dragDelta
-        val over = info.visibleItemsInfo.firstOrNull { center >= it.offset && center < it.offset + it.size }
-        if (over != null && over.key != id) {
-            applyTarget(id, over.index, (over.offset - cur.offset).toFloat())
-        }
-    }
-
-    /**
-     * 点条件 = 直接给系统时钟写一个倒计时。
-     *
-     * 用 android.intent.action.SET_TIMER，不需要任何权限，OPPO/华为/小米/三星的
-     * 自带时钟都认；到点由系统响铃，App 被杀也不影响。
-     * 极少数机型没有能接这个动作的时钟 App，才退回应用内计时。
-     */
     fun start(p: Product, b: BakePreset) {
         TimerAlert.cancel(ctx)
         val label = "${p.name} ${b.tempC}℃"
@@ -144,30 +101,6 @@ fun ProductsScreen(state: AppState) {
         }
         Repo.I.startTimer(p.name, b.tempC, b.minutes)
         Toast0(ctx, "这台手机没有可调用的时钟，改用应用内计时")
-    }
-
-    // 自动滚动：手指停在上下边缘时也一直滚。
-    // 必须放在页面级的 LaunchedEffect 里 —— awaitEachGesture 是受限挂起作用域，不能 launch。
-    LaunchedEffect(draggingId) {
-        if (draggingId == null) return@LaunchedEffect
-        val edgeZone = with(density) { 80.dp.toPx() }
-        val maxStep = with(density) { 24.dp.toPx() }
-        while (isActive) {
-            val info = listState.layoutInfo
-            val y = dragPointerY.floatValue
-            val step = when {
-                y > info.viewportEndOffset - edgeZone ->
-                    ((y - (info.viewportEndOffset - edgeZone)) / edgeZone).coerceIn(0f, 1f) * maxStep
-                y < info.viewportStartOffset + edgeZone ->
-                    -(((info.viewportStartOffset + edgeZone) - y) / edgeZone).coerceIn(0f, 1f) * maxStep
-                else -> 0f
-            }
-            if (step != 0f) {
-                listState.dispatchRawDelta(step)
-                followFinger()
-            }
-            delay(16)
-        }
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
@@ -202,19 +135,8 @@ fun ProductsScreen(state: AppState) {
             contentPadding = PaddingValues(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            itemsIndexed(shown, key = { _, p -> p.id }) { index, p ->
+            items(list, key = { it.id }) { p ->
                 AppCard(
-                    modifier = Modifier
-                        .zIndex(if (draggingId == p.id) 1f else 0f)
-                        .graphicsLayer {
-                            if (draggingId == p.id) {
-                                translationY = dragDelta
-                                scaleX = 1.02f
-                                scaleY = 1.02f
-                                shadowElevation = 12.dp.toPx()
-                            }
-                        }
-                        .then(if (draggingId == p.id) Modifier else Modifier.animateItem()),
                     onClick = {
                         when {
                             p.bakes.isEmpty() -> Toast0(ctx, "「${p.name}」还没有烘烤条件，长按可以编辑")
@@ -247,55 +169,6 @@ fun ProductsScreen(state: AppState) {
                             Text(noted.joinToString(" ｜ "), style = MaterialTheme.typography.bodySmall, color = Ink3)
                         }
                     }
-                    }
-                    // 拖动排序：只在没搜索时显示，避免「拖了但顺序看着乱」
-                    if (key.isBlank()) {
-                        DragHandle(
-                            active = draggingId == p.id,
-                            modifier = Modifier.pointerInput(p.id) {
-                                // PointerInputScope 本身是 Density，阈值在这里换px
-                                val edgeZonePx = 80.dp.toPx()
-                                val maxStepPx = 24.dp.toPx()
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    // 一按下就吃掉，父级的长按编辑收不到，两个手势不再打架
-                                    down.consume()
-                                    val vis = listState.layoutInfo.visibleItemsInfo
-                                        .firstOrNull { it.key == p.id } ?: return@awaitEachGesture
-                                    draggingId = p.id
-                                    dragOrder = list.map { it.id }
-                                    dragHeight = vis.size
-                                    dragDelta = 0f
-                                    dragPointerY.floatValue = vis.offset + down.position.y
-                                    var lastY = down.position.y
-
-                                    try {
-                                        while (true) {
-                                            val ev = awaitPointerEvent()
-                                            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
-                                            if (!ch.pressed) break
-                                            ch.consume()
-                                            dragDelta += ch.position.y - lastY
-                                            lastY = ch.position.y
-
-                                            // 记录手指在列表里的绝对位置（自动滚动定时器要用）
-                                            val info = listState.layoutInfo
-                                            val here = info.visibleItemsInfo
-                                                .firstOrNull { it.key == p.id } ?: continue
-                                            dragPointerY.floatValue = here.offset + ch.position.y + dragDelta
-                                            followFinger()
-                                        }
-                                    } finally {
-                                        val to = dragOrder?.indexOf(p.id) ?: -1
-                                        draggingId = null
-                                        dragOrder = null
-                                        dragDelta = 0f
-                                        // 松手才提交一次：整个拖动过程只写一次库
-                                        if (to >= 0 && to != vis.index) Repo.I.moveProduct(p.id, to)
-                                    }
-                                }
-                            },
-                        )
                     }
                   }
                 }
@@ -366,8 +239,8 @@ fun ProductsScreen(state: AppState) {
         )
     }
 
-    if (creating) ProductEditDialog(existing = null, onDismiss = { creating = false })
-    editing?.let { p -> ProductEditDialog(existing = p, onDismiss = { editing = null }) }
+    if (creating) ProductEditDialog(existing = null, total = state.products.size, onDismiss = { creating = false })
+    editing?.let { p -> ProductEditDialog(existing = p, total = state.products.size, onDismiss = { editing = null }) }
 }
 
 private fun Toast0(ctx: android.content.Context, msg: String) {
@@ -487,8 +360,18 @@ private fun BakePresetPills(bakes: List<BakePreset>) {
 private data class PresetRow(val id: String, val temp: String, val min: String)
 
 @Composable
-private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
+@OptIn(ExperimentalLayoutApi::class)
+private fun ProductEditDialog(existing: Product?, total: Int, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf(existing?.name ?: "") }
+    // 排序：1 = 最前面。新建时默认排到最后
+    val maxPos = if (existing == null) total + 1 else total.coerceAtLeast(1)
+    var pos by remember {
+        mutableStateOf(
+            if (existing == null) maxPos
+            else Repo.I.state.value.products.indexOfFirst { it.id == existing.id }
+                .let { if (it >= 0) it + 1 else 1 }
+        )
+    }
     val rows = remember {
         mutableStateListOf<PresetRow>().apply {
             existing?.bakes?.forEach { add(PresetRow(Repo.uid(), "${it.tempC}", "${it.minutes}")) }
@@ -582,6 +465,26 @@ private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
                     color = Ink3,
                 )
 
+                Spacer(Modifier.height(10.dp))
+                ThinDivider()
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "排序：现在是第 $pos 位（共 $maxPos 条）",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Ink3,
+                )
+                Spacer(Modifier.height(6.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    (1..maxPos).forEach { n ->
+                        ChoiceChip(text = "$n", selected = n == pos, onClick = { pos = n })
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("选 1 就排到最前面。", style = MaterialTheme.typography.bodySmall, color = Ink3)
+
                 if (confirmDelete) {
                     Spacer(Modifier.height(6.dp))
                     Text("删掉「${existing?.name ?: ""}」？", style = MaterialTheme.typography.bodySmall, color = Danger)
@@ -598,8 +501,14 @@ private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
                         if (t in 30..300 && m in 1..600) BakePreset(t, m) else null
                     }
                     val plateList = plates.toList()
-                    if (existing == null) Repo.I.addProduct(name.trim(), bakes, plateList)
-                    else Repo.I.updateProduct(existing.id, name.trim(), bakes, plateList)
+                    val id = if (existing == null) {
+                        Repo.I.addProduct(name.trim(), bakes, plateList)
+                    } else {
+                        Repo.I.updateProduct(existing.id, name.trim(), bakes, plateList)
+                        existing.id
+                    }
+                    // 排序落到指定位置
+                    if (id != null) Repo.I.moveProduct(id, pos - 1)
                     onDismiss()
                 },
             ) { Text("保存", color = Brand) }
@@ -617,24 +526,4 @@ private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
             }
         },
     )
-}
-
-/** 右侧的三条杠：按住上下拖，换位置 */
-@Composable
-private fun DragHandle(active: Boolean, modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .padding(start = 6.dp, top = 2.dp)
-            .size(width = 34.dp, height = 40.dp)
-            .clip(RoundedCornerShape(9.dp))
-            .background(if (active) BrandSoft else Color.Transparent),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            Icons.Filled.Menu,
-            contentDescription = "按住拖动排序",
-            tint = if (active) Brand else Ink3,
-            modifier = Modifier.size(20.dp),
-        )
-    }
 }
