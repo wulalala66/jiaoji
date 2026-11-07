@@ -108,6 +108,18 @@ class Repo private constructor() {
         }
     }
 
+    /** 拖动排序：把某个产品挪到第 [to] 位（越界自动夹住） */
+    fun moveProduct(id: String, to: Int) {
+        mutate { s ->
+            val from = s.products.indexOfFirst { it.id == id }
+            if (from < 0) return@mutate
+            val target = to.coerceIn(0, s.products.size - 1)
+            if (target == from) return@mutate
+            val item = s.products.removeAt(from)
+            s.products.add(target, item)
+        }
+    }
+
     fun removeProduct(id: String) {
         mutate { s -> s.products.removeAll { it.id == id } }
     }

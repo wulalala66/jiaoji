@@ -1116,6 +1116,45 @@ select.input {
   }
 }
 
+/* ---------------------------------------------------------------- 拖动排序 */
+
+.product-card {
+  position: relative;
+  padding-right: 40px;
+  touch-action: pan-y;
+}
+
+.drag-handle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-2);
+  font-size: 17px;
+  letter-spacing: 1px;
+  border-radius: 9px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.drag-handle:active {
+  background: var(--brand-soft);
+  color: var(--brand);
+  cursor: grabbing;
+}
+
+.product-card.dragging {
+  opacity: 0.85;
+  box-shadow: var(--shadow-float);
+  transform: scale(1.01);
+  z-index: 5;
+}
+
 /* ---------------------------------------------------------------- 烘烤计时 */
 
 .timer-host {

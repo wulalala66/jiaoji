@@ -327,7 +327,7 @@ export function renderProducts(root) {
     for (const p of items) {
       const card = el(
         "button",
-        { class: "card list-item product-card", type: "button" },
+        { class: "card list-item product-card", type: "button", "data-id": p.id },
         el(
           "div",
           { class: "list-main" },
@@ -347,6 +347,11 @@ export function renderProducts(root) {
             : null
         )
       );
+      // 拖动把手（搜索时不显示，避免顺序看着乱）
+      if (!keyword) {
+        const handle = el("span", { class: "drag-handle", "aria-label": "按住拖动排序", title: "按住拖动排序" }, "≡");
+        card.appendChild(handle);
+      }
       card.addEventListener("click", (e) => {
         if (card.dataset.longpressed === "1") {
           card.dataset.longpressed = "0";
@@ -528,6 +533,45 @@ export function renderProducts(root) {
       nameInput.focus();
     });
   }
+
+  // ---------------------------------------------------------------- 拖动排序
+  let dragging = null;
+
+  list.addEventListener("pointerdown", (e) => {
+    const handle = e.target.closest?.(".drag-handle");
+    if (!handle) return;
+    const card = handle.closest(".product-card");
+    if (!card) return;
+    e.preventDefault();
+    dragging = card;
+    card.classList.add("dragging");
+    handle.setPointerCapture?.(e.pointerId);
+  });
+
+  list.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    e.preventDefault();
+    const cards = [...list.querySelectorAll(".product-card")].filter((c) => c !== dragging);
+    // 找到指针落在哪张卡上，插到它前面或后面
+    const over = cards.find((c) => {
+      const r = c.getBoundingClientRect();
+      return e.clientY >= r.top && e.clientY <= r.bottom;
+    });
+    if (!over) return;
+    const r = over.getBoundingClientRect();
+    if (e.clientY < r.top + r.height / 2) list.insertBefore(dragging, over);
+    else list.insertBefore(dragging, over.nextSibling);
+  });
+
+  const endDrag = () => {
+    if (!dragging) return;
+    dragging.classList.remove("dragging");
+    dragging = null;
+    const ids = [...list.querySelectorAll(".product-card")].map((c) => c.dataset.id).filter(Boolean);
+    if (ids.length) actions.reorderProducts(ids);
+  };
+  list.addEventListener("pointerup", endDrag);
+  list.addEventListener("pointercancel", endDrag);
 
   draw();
   drawTimer();

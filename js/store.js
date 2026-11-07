@@ -276,6 +276,30 @@ export const actions = {
     });
   },
 
+  /** 拖动排序：把某个产品挪到第 to 位 */
+  moveProduct(id, to) {
+    mutate((s) => {
+      const from = s.products.findIndex((p) => p.id === id);
+      if (from < 0) return;
+      const target = Math.min(Math.max(0, to), s.products.length - 1);
+      if (target === from) return;
+      const [item] = s.products.splice(from, 1);
+      s.products.splice(target, 0, item);
+    });
+  },
+
+  /** 按 id 顺序整体重排（网页端拖动结束后用） */
+  reorderProducts(ids) {
+    mutate((s) => {
+      const map = new Map(s.products.map((p) => [p.id, p]));
+      const next = ids.map((id) => map.get(id)).filter(Boolean);
+      s.products.forEach((p) => {
+        if (!next.includes(p)) next.push(p);
+      });
+      s.products = next;
+    });
+  },
+
   removeProduct(id) {
     mutate((s) => {
       s.products = s.products.filter((p) => p.id !== id);

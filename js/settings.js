@@ -7,7 +7,7 @@ import { el, downloadBlob, todayText } from "./utils.js";
 import { actions, getState } from "./store.js";
 import { confirmDialog, copyText, toast } from "./ui.js";
 
-const VERSION = "3.1.5";
+const VERSION = "3.1.6";
 
 export function renderSettings(root) {
   const state = getState();

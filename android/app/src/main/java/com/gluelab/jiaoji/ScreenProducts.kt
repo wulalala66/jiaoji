@@ -14,8 +14,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import kotlin.math.abs
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -23,6 +32,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -38,6 +48,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -59,7 +71,10 @@ fun ProductsScreen(state: AppState) {
     var creating by remember { mutableStateOf(false) }
     var choosing by remember { mutableStateOf<Product?>(null) }
     var confirmStop by remember { mutableStateOf(false) }
+    var draggingId by remember { mutableStateOf<String?>(null) }
     val ctx = LocalContext.current
+    val listState = rememberLazyListState()
+    val density = LocalDensity.current
 
     val key = q.trim()
     val list = state.products.filter { p ->
@@ -116,10 +131,11 @@ fun ProductsScreen(state: AppState) {
         }
 
         LazyColumn(
+            state = listState,
             contentPadding = PaddingValues(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            items(list, key = { it.id }) { p ->
+            itemsIndexed(list, key = { _, p -> p.id }) { index, p ->
                 AppCard(
                     onClick = {
                         when {
@@ -130,6 +146,8 @@ fun ProductsScreen(state: AppState) {
                     },
                     onLongClick = { editing = p },
                 ) {
+                  Row(verticalAlignment = Alignment.Top) {
+                    Column(Modifier.weight(1f)) {
                     Text(
                         p.name,
                         style = MaterialTheme.typography.titleSmall,
@@ -151,6 +169,35 @@ fun ProductsScreen(state: AppState) {
                             Text(noted.joinToString(" ｜ "), style = MaterialTheme.typography.bodySmall, color = Ink3)
                         }
                     }
+                    }
+                    // 拖动排序：只在没搜索时显示，避免「拖了但顺序看着乱」
+                    if (key.isBlank()) {
+                        DragHandle(
+                            active = draggingId == p.id,
+                            modifier = Modifier.pointerInput(p.id, list) {
+                                detectDragGestures(
+                                    onDragStart = { draggingId = p.id },
+                                    onDragEnd = { draggingId = null },
+                                    onDragCancel = { draggingId = null },
+                                ) { change, amount ->
+                                    change.consume()
+                                    val item = listState.layoutInfo.visibleItemsInfo
+                                        .firstOrNull { it.key == p.id } ?: return@detectDragGestures
+                                    val threshold = item.size * 0.55f
+                                    val target = when {
+                                        amount.y > 0 && amount.y >= threshold -> index + 1
+                                        amount.y < 0 && -amount.y >= threshold -> index - 1
+                                        else -> -1
+                                    }
+                                    if (target in list.indices) {
+                                        val toIndex = state.products.indexOfFirst { it.id == list[target].id }
+                                        if (toIndex >= 0) Repo.I.moveProduct(p.id, toIndex)
+                                    }
+                                }
+                            },
+                        )
+                    }
+                  }
                 }
             }
             if (list.isEmpty()) {
@@ -470,4 +517,24 @@ private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
             }
         },
     )
+}
+
+/** 右侧的三条杠：按住上下拖，换位置 */
+@Composable
+private fun DragHandle(active: Boolean, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .padding(start = 6.dp, top = 2.dp)
+            .size(width = 34.dp, height = 40.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(if (active) BrandSoft else Color.Transparent),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Filled.Menu,
+            contentDescription = "按住拖动排序",
+            tint = if (active) Brand else Ink3,
+            modifier = Modifier.size(20.dp),
+        )
+    }
 }
