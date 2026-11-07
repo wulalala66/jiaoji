@@ -1,6 +1,6 @@
 package com.gluelab.jiaoji
 
-import android.app.AlarmClock
+import android.provider.AlarmClock
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
