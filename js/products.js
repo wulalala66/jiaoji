@@ -540,6 +540,32 @@ export function renderProducts(root) {
   let dragging = null;
   let dragAcc = 0;
   let lastY = 0;
+  let pointerY = 0;
+  let autoScrollId = 0;
+
+  // 手指停在边缘时也要一直滚 —— 不能只在 pointermove 里滚
+  function startAutoScroll() {
+    if (autoScrollId) return;
+    const edge = 96;
+    const step = () => {
+      autoScrollId = requestAnimationFrame(() => {
+        if (!dragging) return;
+        const vh = window.innerHeight;
+        if (pointerY > vh - edge) {
+          window.scrollBy(0, ((pointerY - (vh - edge)) / edge) * 22);
+        } else if (pointerY < edge) {
+          window.scrollBy(0, -(((edge - pointerY) / edge) * 22));
+        }
+        step();
+      });
+    };
+    step();
+  }
+
+  function stopAutoScroll() {
+    if (autoScrollId) cancelAnimationFrame(autoScrollId);
+    autoScrollId = 0;
+  }
 
   list.addEventListener("pointerdown", (e) => {
     const handle = e.target.closest?.(".drag-handle");
@@ -553,6 +579,8 @@ export function renderProducts(root) {
     lastY = e.clientY;
     card.classList.add("dragging");
     card.style.transform = "";
+    pointerY = e.clientY;
+    startAutoScroll();
     handle.setPointerCapture?.(e.pointerId);
   });
 
@@ -563,11 +591,7 @@ export function renderProducts(root) {
     lastY = e.clientY;
     dragging.style.transform = `translateY(${dragAcc}px) scale(1.02)`;
 
-    // 靠近窗口上下边缘时自动滚动
-    const edge = 90;
-    const vh = window.innerHeight;
-    if (e.clientY > vh - edge) window.scrollBy(0, ((e.clientY - (vh - edge)) / edge) * 14);
-    else if (e.clientY < edge) window.scrollBy(0, -(((edge - e.clientY) / edge) * 14));
+    pointerY = e.clientY;
 
     const cards = [...list.querySelectorAll(".product-card")].filter((c) => c !== dragging);
     // 找到指针落在哪张卡上，插到它前面或后面
@@ -588,6 +612,7 @@ export function renderProducts(root) {
 
   const endDrag = () => {
     if (!dragging) return;
+    stopAutoScroll();
     dragging.classList.remove("dragging");
     dragging.style.transform = "";
     dragging = null;
