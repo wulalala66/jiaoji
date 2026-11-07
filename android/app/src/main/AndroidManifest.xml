@@ -5,6 +5,13 @@
     <!-- 烘烤到点振动提醒；通知权限在 Android 13+ 首次计时时申请 -->
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+      调系统时钟的 SET_TIMER / SET_ALARM 需要它。
+      这是框架里的 normal 级权限：安装时自动授予，不会弹窗。
+      ColorOS 的 HandleApiActivity 挂着 android:permission="com.android.alarm.permission.SET_ALARM"，
+      不声明的话 startActivity 会抛 SecurityException —— 之前「显示没有时钟 App」就是这个原因。
+    -->
+    <uses-permission android:name="com.android.alarm.permission.SET_ALARM" />
 
     <!-- Android 11+ 要声明才查得到系统时钟（resolveActivity 用） -->
     <queries>
