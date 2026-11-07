@@ -210,6 +210,9 @@ fun ProductsScreen(state: AppState) {
                         DragHandle(
                             active = draggingId == p.id,
                             modifier = Modifier.pointerInput(p.id) {
+                                // PointerInputScope 本身是 Density，阈值在这里换px
+                                val edgeZonePx = 72.dp.toPx()
+                                val maxStepPx = 14.dp.toPx()
                                 awaitEachGesture {
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     // 一按下就吃掉，父级的长按编辑收不到，两个手势不再打架
@@ -231,8 +234,27 @@ fun ProductsScreen(state: AppState) {
                                             dragDelta += ch.position.y - lastY
                                             lastY = ch.position.y
 
-                                            // 用「被拖卡片当前中心」落在哪一项上来决定目标位置
-                                            val center = vis.offset + dragHeight / 2f + dragDelta
+                                            val info = listState.layoutInfo
+                                            // 拖到上下边缘时自动滚动（列表比屏幕长的时候必需）
+                                            val pointerY = (info.visibleItemsInfo
+                                                .firstOrNull { it.key == p.id }?.offset ?: vis.offset) +
+                                                down.position.y + dragDelta
+                                            val edge = edgeZonePx
+                                            val step = when {
+                                                pointerY > info.viewportEndOffset - edge ->
+                                                    ((pointerY - (info.viewportEndOffset - edge)) / edge)
+                                                        .coerceIn(0f, 1f) * maxStepPx
+                                                pointerY < info.viewportStartOffset + edge ->
+                                                    -(((info.viewportStartOffset + edge) - pointerY) / edge)
+                                                        .coerceIn(0f, 1f) * maxStepPx
+                                                else -> 0f
+                                            }
+                                            if (step != 0f) listState.dispatchRawDelta(step)
+
+                                            // 每一帧都重新取布局：自动滚动之后 vis 里的 offset 已经过期
+                                            val fresh = listState.layoutInfo.visibleItemsInfo
+                                                .firstOrNull { it.key == p.id } ?: vis
+                                            val center = fresh.offset + dragHeight / 2f + dragDelta
                                             val over = listState.layoutInfo.visibleItemsInfo
                                                 .firstOrNull { center >= it.offset && center < it.offset + it.size }
                                             if (over != null && over.key != p.id) dragTo = over.index

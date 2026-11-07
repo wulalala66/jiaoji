@@ -563,6 +563,12 @@ export function renderProducts(root) {
     lastY = e.clientY;
     dragging.style.transform = `translateY(${dragAcc}px) scale(1.02)`;
 
+    // 靠近窗口上下边缘时自动滚动
+    const edge = 90;
+    const vh = window.innerHeight;
+    if (e.clientY > vh - edge) window.scrollBy(0, ((e.clientY - (vh - edge)) / edge) * 14);
+    else if (e.clientY < edge) window.scrollBy(0, -(((edge - e.clientY) / edge) * 14));
+
     const cards = [...list.querySelectorAll(".product-card")].filter((c) => c !== dragging);
     // 找到指针落在哪张卡上，插到它前面或后面
     const over = cards.find((c) => {
