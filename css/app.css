@@ -850,6 +850,17 @@ select.input {
   margin-bottom: 4px;
 }
 
+.plate-tag {
+  display: flex;
+  align-items: center;
+  height: 37px;
+}
+
+.plate-notes {
+  font-size: 12px;
+  color: var(--muted);
+}
+
 .dialog-backdrop {
   position: fixed;
   inset: 0;

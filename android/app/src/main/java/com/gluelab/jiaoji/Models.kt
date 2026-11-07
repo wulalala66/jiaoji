@@ -38,42 +38,51 @@ data class BakePreset(var tempC: Int = 140, var minutes: Int = 30) {
 }
 
 /**
+ * 一块电泳板。
+ *
+ * 板子是有各自用途的：同一批烘烤里，可能一块专门做 2mm 流挂、一块测硬度、
+ * 一块做附着力 —— 新旧都可能带要求，所以每块单独记，而不是只给「新板」一个条件。
+ */
+data class Plate(
+    var id: String = "",
+    /** true = 新板，false = 旧板 */
+    var fresh: Boolean = false,
+    /** 这块板子拿来做什么 / 有什么要求，比如「2mm 流挂」「测附着力」；可以空着 */
+    var note: String = "",
+)
+
+/**
  * 产品 / 客户对应的烘烤条件（车间那张表）。
  *
- * 除了温度时间，还要记「这次烘烤要几块电泳板」：
- * 有的客户要求新板（还要指定流挂），有的新旧都行。
- * 例：安徽万安 4 块 —— 新板 1 块（2mm 流挂），旧板 3 块（旧板不管流挂）。
+ * 除了温度时间，还要记「这次烘烤准备哪几块电泳板」：
+ * 例：安徽万安 4 块 —— 1 块新板做 2mm 流挂，3 块旧板（没特别要求）。
  */
 data class Product(
     var id: String = "",
     var name: String = "",
     var bakes: MutableList<BakePreset> = mutableListOf(),
-    /** 这次烘烤要几块电泳板，0 = 不需要 */
-    var plateTotal: Int = 0,
-    /** 其中必须用新板的块数（0 = 新旧都行） */
-    var plateNew: Int = 0,
-    /** 新板的要求，比如「2mm 流挂」；旧板不用填 */
-    var plateSpec: String = "",
+    var plates: MutableList<Plate> = mutableListOf(),
 ) {
-    val plateOld: Int get() = (plateTotal - plateNew).coerceAtLeast(0)
-    val hasPlates: Boolean get() = plateTotal > 0
+    val hasPlates: Boolean get() = plates.isNotEmpty()
+    val plateNew: Int get() = plates.count { it.fresh }
+    val plateOld: Int get() = plates.count { !it.fresh }
 
-    /** 列表和 AI 都用这一句 */
-    fun plateText(): String = when {
-        !hasPlates -> "不用电泳板"
-        plateNew <= 0 -> "电泳板 $plateTotal 块（新旧都行）"
-        else -> buildString {
-            append("电泳板 ").append(plateTotal).append(" 块：新 ").append(plateNew)
-            if (plateSpec.isNotBlank()) append("（").append(plateSpec).append("）")
-            if (plateOld > 0) append(" / 旧 ").append(plateOld)
-        }
+    /** 一句话摘要，列表和 AI 都用它 */
+    fun plateText(): String {
+        if (plates.isEmpty()) return "不用电泳板"
+        val parts = ArrayList<String>()
+        if (plateNew > 0) parts.add("新 $plateNew")
+        if (plateOld > 0) parts.add("旧 $plateOld")
+        return "电泳板 ${plates.size} 块（${parts.joinToString(" / ")}）"
+    }
+
+    /** 每块板子一行，比如「新 · 2mm 流挂」「旧」 */
+    fun plateLines(): List<String> = plates.map { p ->
+        val tag = if (p.fresh) "新" else "旧"
+        if (p.note.isBlank()) tag else "$tag · ${p.note}"
     }
 }
 
-/**
- * 配料：一锅固定总量（比如 600g = 100%），每种原料占多少 %。
- * 百分比是唯一真相 —— 改总量时克数自动跟着变，配方本身不动。
- */
 data class FormulaItem(
     var id: String = "",
     var name: String = "",
@@ -176,7 +185,12 @@ object Defaults {
         Product("p07", "柳州万安", mutableListOf(BakePreset(160, 20))),
         Product(
             "p08", "安徽万安", mutableListOf(BakePreset(170, 20), BakePreset(210, 20)),
-            plateTotal = 4, plateNew = 1, plateSpec = "2mm 流挂",
+            plates = mutableListOf(
+                Plate("pl_wanan_1", fresh = true, note = "2mm 流挂"),
+                Plate("pl_wanan_2", fresh = false, note = ""),
+                Plate("pl_wanan_3", fresh = false, note = ""),
+                Plate("pl_wanan_4", fresh = false, note = ""),
+            ),
         ),
         Product("p09", "江阴铝板底涂", mutableListOf(BakePreset(155, 30))),
         Product("p10", "五菱灰色底涂", mutableListOf(BakePreset(140, 30))),
@@ -240,10 +254,16 @@ object Codec {
                     put("bakes", JSONArray().apply {
                         pd.bakes.forEach { b -> put(JSONObject().put("temp", b.tempC).put("minutes", b.minutes)) }
                     })
-                    if (pd.plateTotal > 0) {
-                        put("plateTotal", pd.plateTotal)
-                        put("plateNew", pd.plateNew)
-                        if (pd.plateSpec.isNotBlank()) put("plateSpec", pd.plateSpec)
+                    if (pd.plates.isNotEmpty()) {
+                        put("plates", JSONArray().apply {
+                            pd.plates.forEach { pl ->
+                                put(JSONObject().apply {
+                                    put("id", pl.id)
+                                    put("fresh", pl.fresh)
+                                    if (pl.note.isNotBlank()) put("note", pl.note)
+                                })
+                            }
+                        })
                     }
                 })
             }
@@ -295,15 +315,27 @@ object Codec {
                 val j = arr.optJSONObject(i) ?: continue
                 val name = j.optString("name", "").trim()
                 if (name.isEmpty()) continue
-                val total = j.optInt("plateTotal", 0).coerceIn(0, 99)
-                val pd = Product(
-                    id = j.optString("id", "p_$i"),
-                    name = name,
-                    plateTotal = total,
-                    // 新板数不能超过总数，老数据/手改的备份都可能出现越界
-                    plateNew = j.optInt("plateNew", 0).coerceIn(0, total),
-                    plateSpec = j.optString("plateSpec", "").trim(),
-                )
+                val pd = Product(id = j.optString("id", "p_$i"), name = name)
+                j.optJSONArray("plates")?.let { ps ->
+                    for (k in 0 until ps.length()) {
+                        val po = ps.optJSONObject(k) ?: continue
+                        pd.plates.add(
+                            Plate(
+                                id = po.optString("id", "pl_${i}_$k"),
+                                fresh = po.optBoolean("fresh", false),
+                                note = po.optString("note", "").trim(),
+                            )
+                        )
+                    }
+                }
+                // 3.0.4 的老格式：总数 / 新板数 / 新板要求 —— 自动折成板子列表
+                if (pd.plates.isEmpty()) {
+                    val total = j.optInt("plateTotal", 0).coerceIn(0, 99)
+                    val fresh = j.optInt("plateNew", 0).coerceIn(0, total)
+                    val spec = j.optString("plateSpec", "").trim()
+                    repeat(fresh) { pd.plates.add(Plate("pl_${i}_n$it", fresh = true, note = spec)) }
+                    repeat(total - fresh) { pd.plates.add(Plate("pl_${i}_o$it", fresh = false)) }
+                }
                 j.optJSONArray("bakes")?.let { bs ->
                     for (k in 0 until bs.length()) {
                         val b = bs.optJSONObject(k) ?: continue

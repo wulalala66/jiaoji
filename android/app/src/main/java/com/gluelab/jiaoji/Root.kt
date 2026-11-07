@@ -44,7 +44,8 @@ sealed interface Screen {
 @Composable
 fun Root() {
     val state by Repo.I.state.collectAsState()
-    var screen by remember { mutableStateOf<Screen>(Screen.Formulas) }
+    // 打开 App 先看比重计算器：这是每天用得最多的一屏
+    var screen by remember { mutableStateOf<Screen>(Screen.Density) }
     val history = remember { mutableStateListOf<Screen>() }
 
     fun goTo(to: Screen) {
@@ -55,7 +56,7 @@ fun Root() {
     }
 
     fun goBack() {
-        screen = if (history.isNotEmpty()) history.removeAt(history.size - 1) else Screen.Formulas
+        screen = if (history.isNotEmpty()) history.removeAt(history.size - 1) else Screen.Density
     }
 
     fun goTab(to: Screen) {

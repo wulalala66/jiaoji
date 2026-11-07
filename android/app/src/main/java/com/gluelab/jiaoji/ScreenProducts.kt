@@ -84,10 +84,19 @@ fun ProductsScreen(state: AppState) {
                     if (p.hasPlates) {
                         Spacer(Modifier.height(6.dp))
                         Pill(
-                            p.plateText(),
+                            "🧫 " + p.plateText(),
                             if (p.plateNew > 0) Warn else Ink2,
                             if (p.plateNew > 0) WarnSoft else SoftBg,
                         )
+                        val noted = p.plateLines().filter { it.contains("·") }
+                        if (noted.isNotEmpty()) {
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                noted.joinToString(" ｜ "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Ink3,
+                            )
+                        }
                     }
                 }
             }
@@ -127,13 +136,11 @@ private data class PresetRow(val id: String, val temp: String, val min: String)
 @Composable
 private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf(existing?.name ?: "") }
-    var plateTotal by remember {
-        mutableStateOf(existing?.plateTotal?.takeIf { it > 0 }?.toString() ?: "")
+    val plates = remember {
+        mutableStateListOf<Plate>().apply {
+            existing?.plates?.forEach { add(it.copy()) }
+        }
     }
-    var plateNew by remember {
-        mutableStateOf(existing?.plateNew?.takeIf { it > 0 }?.toString() ?: "")
-    }
-    var plateSpec by remember { mutableStateOf(existing?.plateSpec ?: "") }
     val rows = remember {
         mutableStateListOf<PresetRow>().apply {
             existing?.bakes?.forEach { add(PresetRow(Repo.uid(), "${it.tempC}", "${it.minutes}")) }
@@ -190,37 +197,37 @@ private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
                 Spacer(Modifier.height(10.dp))
                 ThinDivider()
                 Spacer(Modifier.height(10.dp))
-                Text("电泳板（不需要就留空）", style = MaterialTheme.typography.labelSmall, color = Ink3)
+                Text("电泳板（每块单独记用途，不需要就不加）", style = MaterialTheme.typography.labelSmall, color = Ink3)
                 Spacer(Modifier.height(6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    NumField(
-                        value = plateTotal,
-                        onValueChange = { plateTotal = it.filter { c -> c.isDigit() }.take(2) },
-                        label = "需要几块",
-                        modifier = Modifier.weight(1f),
-                    )
-                    NumField(
-                        value = plateNew,
-                        onValueChange = { plateNew = it.filter { c -> c.isDigit() }.take(2) },
-                        label = "其中新板",
-                        modifier = Modifier.weight(1f),
-                        imeNext = false,
-                    )
+                plates.forEachIndexed { i, plate ->
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    ) {
+                        ChoiceChip(
+                            text = if (plate.fresh) "新板" else "旧板",
+                            selected = plate.fresh,
+                            onClick = { plates[i] = plate.copy(fresh = !plate.fresh) },
+                        )
+                        OutlinedTextField(
+                            value = plate.note,
+                            onValueChange = { v -> plates[i] = plate.copy(note = v) },
+                            placeholder = { Text("用途 / 要求，可空", style = MaterialTheme.typography.bodySmall, color = Ink3) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f),
+                            textStyle = MaterialTheme.typography.bodyMedium,
+                            colors = fieldColors(),
+                        )
+                        IconAction(Icons.Filled.Delete, Danger, "删掉这块板") { plates.removeAt(i) }
+                    }
                 }
-                Spacer(Modifier.height(6.dp))
-                OutlinedTextField(
-                    value = plateSpec,
-                    onValueChange = { plateSpec = it },
-                    label = { Text("新板要求", style = MaterialTheme.typography.labelSmall) },
-                    placeholder = { Text("比如 2mm 流挂", style = MaterialTheme.typography.bodySmall, color = Ink3) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                    textStyle = MaterialTheme.typography.bodyMedium,
-                    colors = fieldColors(),
-                )
-                Spacer(Modifier.height(4.dp))
+                TextButton(onClick = { plates.add(Plate(Repo.uid(), fresh = false, note = "")) }) {
+                    Text("＋ 加一块板", color = Brand)
+                }
                 Text(
-                    "旧板不用填要求。例：安徽万安 4 块 —— 新板 1 块（2mm 流挂），旧板 3 块。",
+                    "例：安徽万安 4 块 —— 1 块新板写「2mm 流挂」，3 块旧板空着就行；" +
+                        "也可以一块写「测附着力」、一块写「测硬度」。",
                     style = MaterialTheme.typography.bodySmall,
                     color = Ink3,
                 )
@@ -242,12 +249,11 @@ private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
                         val m = r.min.trim().toIntOrNull() ?: return@mapNotNull null
                         if (t in 30..300 && m in 1..600) BakePreset(t, m) else null
                     }
-                    val total = plateTotal.trim().toIntOrNull()?.coerceIn(0, 99) ?: 0
-                    val fresh = (plateNew.trim().toIntOrNull() ?: 0).coerceIn(0, total)
+                    val plateList = plates.toList()
                     if (existing == null) {
-                        Repo.I.addProduct(name.trim(), bakes, total, fresh, plateSpec.trim())
+                        Repo.I.addProduct(name.trim(), bakes, plateList)
                     } else {
-                        Repo.I.updateProduct(existing.id, name.trim(), bakes, total, fresh, plateSpec.trim())
+                        Repo.I.updateProduct(existing.id, name.trim(), bakes, plateList)
                     }
                     onDismiss()
                 },

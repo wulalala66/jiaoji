@@ -106,7 +106,7 @@ object AiTools {
             put("purpose", p("string", "实验目的，例如 降低粘度"))
             put("cure", p("string", "固化温度，例如 140*30"))
         }, listOf("formulaId")))
-        put(fn("get_products", "查产品条件表：产品名对应的烘烤温度、时间，以及烘烤要用的电泳板（几块 / 其中几块必须是新板 / 新板要求）", JSONObject().apply {
+        put(fn("get_products", "查产品条件表：产品名对应的烘烤温度、时间，以及烘烤要用的电泳板（每块板的新旧和用途）", JSONObject().apply {
             put("query", p("string", "产品名关键词，可空（空就全返回）"))
         }, emptyList()))
         put(fn("web_search", "用搜索引擎查资料，返回标题、链接和摘要", JSONObject().apply {
@@ -278,14 +278,19 @@ object AiTools {
                 put("bakes", JSONArray().apply {
                     p.bakes.forEach { b -> put("${b.tempC}℃ ${b.minutes}分") }
                 })
-                // 烘烤要用的电泳板：几块、其中几块必须是新的、新板什么要求
+                // 电泳板：每块单独记新旧和用途
                 if (p.hasPlates) {
-                    put("plateTotal", p.plateTotal)
-                    put("plateNew", p.plateNew)
-                    if (p.plateSpec.isNotBlank()) put("plateSpec", p.plateSpec)
-                    put("plates", p.plateText())
+                    put("plateText", p.plateText())
+                    put("plates", JSONArray().apply {
+                        p.plates.forEach { pl ->
+                            put(JSONObject().apply {
+                                put("fresh", pl.fresh)
+                                put("note", pl.note)
+                            })
+                        }
+                    })
                 } else {
-                    put("plates", "不用电泳板")
+                    put("plateText", "不用电泳板")
                 }
             })
         }

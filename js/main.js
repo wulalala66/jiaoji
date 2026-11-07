@@ -35,13 +35,14 @@ function navigate(hash) {
 function parse() {
   const raw = location.hash.replace(/^#\/?/, "");
   const parts = raw.split("/").filter(Boolean);
-  if (!parts.length) return { name: "formulas", args: [] };
+  // 打开就是比重计算器：每天用得最多的一屏
+  if (!parts.length) return { name: "density", args: [] };
   return { name: parts[0], args: parts.slice(1) };
 }
 
 function render() {
   const route = parse();
-  currentRoute = location.hash || "#/formulas";
+  currentRoute = location.hash || "#/density";
 
   if (typeof cleanup === "function") {
     cleanup();
@@ -74,15 +75,17 @@ function render() {
         renderSettings(root, { navigate });
         break;
       case "formulas":
-      default:
         renderFormulas(root, { navigate });
+        break;
+      default:
+        renderDensity(root);
         break;
     }
   } catch (e) {
     console.error(e);
     root.appendChild(el("div", { class: "fatal" }, "这一页出错了：" + (e.message || e)));
     root.appendChild(
-      el("button", { class: "btn btn-ghost", type: "button", onclick: () => navigate("#/formulas") }, "回配料页")
+      el("button", { class: "btn btn-ghost", type: "button", onclick: () => navigate("#/density") }, "回比重页")
     );
   }
 
@@ -124,7 +127,7 @@ function boot() {
   if (note) toast(note, "warn", 4200);
 
   window.addEventListener("hashchange", render);
-  if (!location.hash) location.replace("#/formulas");
+  if (!location.hash) location.replace("#/density");
   render();
 
   // 注册 service worker（只在 https / localhost 下有效）

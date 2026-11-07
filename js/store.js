@@ -19,7 +19,12 @@ export function defaultProducts() {
     ["p05", "润东铭", [[160, 20]]],
     ["p06", "润金泽/六安", [[150, 30], [170, 20]]],
     ["p07", "柳州万安", [[160, 20]]],
-    ["p08", "安徽万安", [[170, 20], [210, 20]], { total: 4, fresh: 1, spec: "2mm 流挂" }],
+    ["p08", "安徽万安", [[170, 20], [210, 20]], [
+      { fresh: true, note: "2mm 流挂" },
+      { fresh: false, note: "" },
+      { fresh: false, note: "" },
+      { fresh: false, note: "" },
+    ]],
     ["p09", "江阴铝板底涂", [[155, 30]]],
     ["p10", "五菱灰色底涂", [[140, 30]]],
     ["p11", "方达发泡底涂", [[160, 20]]],
@@ -32,10 +37,12 @@ export function defaultProducts() {
     id,
     name,
     bakes: bakes.map(([temp, minutes]) => ({ temp, minutes })),
-    // 烘烤要用的电泳板：总数 / 其中必须用新板的块数 / 新板要求（旧板不用管）
-    plateTotal: plates?.total ?? 0,
-    plateNew: plates?.fresh ?? 0,
-    plateSpec: plates?.spec ?? "",
+    // 电泳板：每块单独记新旧和用途
+    plates: (plates || []).map((pl, i) => ({
+      id: `pl_${id}_${i}`,
+      fresh: !!pl.fresh,
+      note: pl.note || "",
+    })),
   }));
 }
 
@@ -122,15 +129,26 @@ export function decode(raw) {
           if (temp > 0 && minutes > 0) bakes.push({ temp: Math.round(temp), minutes: Math.round(minutes) });
         }
       }
-      const total = Math.min(99, Math.max(0, Math.round(num(p.plateTotal) ?? 0)));
-      state.products.push({
-        id: str(p.id) || "p_" + uid(),
-        name,
-        bakes,
-        plateTotal: total,
-        plateNew: Math.min(total, Math.max(0, Math.round(num(p.plateNew) ?? 0))),
-        plateSpec: str(p.plateSpec).trim(),
-      });
+      const plates = [];
+      if (Array.isArray(p.plates)) {
+        for (const pl of p.plates) {
+          if (!pl || typeof pl !== "object") continue;
+          plates.push({
+            id: str(pl.id) || "pl_" + uid(),
+            fresh: pl.fresh === true,
+            note: str(pl.note).trim(),
+          });
+        }
+      }
+      // 3.0.4 的老格式：总数 / 新板数 / 新板要求 —— 自动折成板子列表
+      if (!plates.length) {
+        const total = Math.min(99, Math.max(0, Math.round(num(p.plateTotal) ?? 0)));
+        const fresh = Math.min(total, Math.max(0, Math.round(num(p.plateNew) ?? 0)));
+        const spec = str(p.plateSpec).trim();
+        for (let i = 0; i < fresh; i++) plates.push({ id: "pl_" + uid(), fresh: true, note: spec });
+        for (let i = 0; i < total - fresh; i++) plates.push({ id: "pl_" + uid(), fresh: false, note: "" });
+      }
+      state.products.push({ id: str(p.id) || "p_" + uid(), name, bakes, plates });
     }
   }
   if (!state.products.length) state.products = defaultProducts();
@@ -182,8 +200,14 @@ export function encode(state) {
       id: p.id,
       name: p.name,
       bakes: p.bakes.map((b) => ({ temp: b.temp, minutes: b.minutes })),
-      ...(p.plateTotal > 0
-        ? { plateTotal: p.plateTotal, plateNew: p.plateNew, ...(p.plateSpec ? { plateSpec: p.plateSpec } : {}) }
+      ...(p.plates?.length
+        ? {
+            plates: p.plates.map((pl) => ({
+              id: pl.id,
+              fresh: !!pl.fresh,
+              ...(pl.note ? { note: pl.note } : {}),
+            })),
+          }
         : {}),
     })),
     formulas: state.formulas.map((f) => ({
@@ -302,14 +326,22 @@ export function restGrams(f) {
 
 /** 电泳板的一句话说明，列表和 AI 共用 */
 export function plateText(p) {
-  if (!p || !p.plateTotal) return "不用电泳板";
-  if (!p.plateNew) return `电泳板 ${p.plateTotal} 块（新旧都行）`;
-  const old = Math.max(0, p.plateTotal - p.plateNew);
-  return (
-    `电泳板 ${p.plateTotal} 块：新 ${p.plateNew}` +
-    (p.plateSpec ? `（${p.plateSpec}）` : "") +
-    (old > 0 ? ` / 旧 ${old}` : "")
-  );
+  const plates = p?.plates || [];
+  if (!plates.length) return "不用电泳板";
+  const fresh = plates.filter((x) => x.fresh).length;
+  const old = plates.length - fresh;
+  const parts = [];
+  if (fresh) parts.push(`新 ${fresh}`);
+  if (old) parts.push(`旧 ${old}`);
+  return `电泳板 ${plates.length} 块（${parts.join(" / ")}）`;
+}
+
+/** 每块板子一行：「新 · 2mm 流挂」「旧」 */
+export function plateLines(p) {
+  return (p?.plates || []).map((pl) => {
+    const tag = pl.fresh ? "新" : "旧";
+    return pl.note ? `${tag} · ${pl.note}` : tag;
+  });
 }
 
 export function isComplete(f) {
@@ -401,27 +433,18 @@ export const actions = {
     });
   },
 
-  addProduct(name, bakes = [], plates = {}) {
+  addProduct(name, bakes = [], plates = []) {
     const clean = name.trim();
     if (!clean) return null;
     if (state.products.some((p) => p.name === clean)) return null;
     const id = "p_" + uid();
     mutate((s) => {
-      s.products.push({
-        id,
-        name: clean,
-        bakes,
-        plateTotal: Math.min(99, Math.max(0, Math.round(num(plates.total) ?? 0))),
-        plateNew: 0,
-        plateSpec: (plates.spec || "").trim(),
-      });
-      const p = s.products[s.products.length - 1];
-      p.plateNew = Math.min(p.plateTotal, Math.max(0, Math.round(num(plates.fresh) ?? 0)));
+      s.products.push({ id, name: clean, bakes, plates: plates.map((pl) => ({ ...pl, id: pl.id || "pl_" + uid() })) });
     });
     return id;
   },
 
-  updateProduct(id, name, bakes, plates = {}) {
+  updateProduct(id, name, bakes, plates = []) {
     const clean = name.trim();
     if (!clean) return;
     mutate((s) => {
@@ -429,9 +452,7 @@ export const actions = {
       if (!p) return;
       p.name = clean;
       p.bakes = bakes;
-      p.plateTotal = Math.min(99, Math.max(0, Math.round(num(plates.total) ?? 0)));
-      p.plateNew = Math.min(p.plateTotal, Math.max(0, Math.round(num(plates.fresh) ?? 0)));
-      p.plateSpec = (plates.spec || "").trim();
+      p.plates = plates.map((pl) => ({ ...pl, id: pl.id || "pl_" + uid() }));
     });
   },
 

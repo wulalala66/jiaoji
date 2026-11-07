@@ -64,38 +64,62 @@ class RepoTest {
     }
 
     @Test
-    fun productPlatesSurviveExportAndImport() {
+    fun productPlatesKeepTheirOwnPurpose() {
         val id = Repo.I.addProduct(
             "电泳板客户",
             listOf(BakePreset(160, 20)),
-            plateTotal = 4,
-            plateNew = 1,
-            plateSpec = "2mm 流挂",
+            listOf(
+                Plate("pl1", fresh = true, note = "2mm 流挂"),
+                Plate("pl2", fresh = false, note = "测附着力"),
+                Plate("pl3", fresh = false, note = ""),
+                Plate("pl4", fresh = false, note = ""),
+            ),
         )!!
         val p = state().productOf(id)!!
-        assertEquals(4, p.plateTotal)
+        assertEquals(4, p.plates.size)
         assertEquals(1, p.plateNew)
-        assertEquals("旧板 = 总数 - 新板", 3, p.plateOld)
-        assertTrue("说明里要带上新板要求", p.plateText().contains("2mm 流挂"))
+        assertEquals(3, p.plateOld)
+        assertEquals("2mm 流挂", p.plates.first { it.fresh }.note)
+        // 旧板也可以有自己的用途，不是只有新板才有条件
+        assertEquals("测附着力", p.plates.first { !it.fresh }.note)
+        assertTrue(p.plateText().contains("4 块"))
+        assertTrue(p.plateLines().any { it == "新 · 2mm 流挂" })
+        assertTrue(p.plateLines().any { it == "旧 · 测附着力" })
+    }
 
+    @Test
+    fun productPlatesSurviveExportAndImport() {
+        val id = Repo.I.addProduct(
+            "电泳板客户",
+            emptyList(),
+            listOf(Plate("pl1", fresh = true, note = "2mm 流挂"), Plate("pl2", fresh = false, note = "测硬度")),
+        )!!
         val json = Repo.I.exportJson()
         Repo.I.removeProduct(id)
         assertNull(state().productOf(id))
 
         assertTrue(Repo.I.importJson(json))
         val back = state().productOf(id)
-        assertNotNull("导入后电泳板信息不能丢", back)
-        assertEquals(4, back!!.plateTotal)
-        assertEquals(1, back.plateNew)
-        assertEquals("2mm 流挂", back.plateSpec)
+        assertNotNull("导入后电泳板不能丢", back)
+        assertEquals(2, back!!.plates.size)
+        assertEquals("2mm 流挂", back.plates[0].note)
+        assertEquals("测硬度", back.plates[1].note)
+        assertTrue(back.plates[1].fresh.not())
     }
 
     @Test
-    fun plateNewIsClampedToTotal() {
-        val id = Repo.I.addProduct("越界客户", emptyList(), plateTotal = 2, plateNew = 9)!!
-        val p = state().productOf(id)!!
-        assertEquals("新板数不能超过总数", 2, p.plateNew)
-        assertEquals(0, p.plateOld)
+    fun legacyPlateFieldsMigrateToPlateList() {
+        // 3.0.4 的老格式：只有总数 / 新板数 / 新板要求
+        val legacy = """
+            {"v":1,"products":[{"id":"p9","name":"老客户","bakes":[],
+             "plateTotal":4,"plateNew":1,"plateSpec":"2mm 流挂"}],"formulas":[]}
+        """.trimIndent()
+        assertTrue(Repo.I.importJson(legacy))
+        val p = state().productOf("p9")!!
+        assertEquals("老数据要折成 4 块板", 4, p.plates.size)
+        assertEquals(1, p.plateNew)
+        assertEquals("2mm 流挂", p.plates.first { it.fresh }.note)
+        assertEquals("旧板不该带要求", "", p.plates.first { !it.fresh }.note)
     }
 
     @Test

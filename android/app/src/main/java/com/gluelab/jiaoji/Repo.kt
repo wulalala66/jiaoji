@@ -81,9 +81,7 @@ class Repo private constructor() {
     fun addProduct(
         name: String,
         bakes: List<BakePreset> = emptyList(),
-        plateTotal: Int = 0,
-        plateNew: Int = 0,
-        plateSpec: String = "",
+        plates: List<Plate> = emptyList(),
     ): String? {
         val n = name.trim()
         if (n.isEmpty()) return null
@@ -91,15 +89,12 @@ class Repo private constructor() {
         mutate { s ->
             if (s.products.any { it.name == n }) return@mutate
             val pid = "p_" + uid()
-            val total = plateTotal.coerceIn(0, 99)
             s.products.add(
                 Product(
                     id = pid,
                     name = n,
                     bakes = bakes.toMutableList(),
-                    plateTotal = total,
-                    plateNew = plateNew.coerceIn(0, total),
-                    plateSpec = plateSpec.trim(),
+                    plates = plates.map { it.copy(id = it.id.ifBlank { "pl_" + uid() }) }.toMutableList(),
                 )
             )
             id = pid
@@ -111,9 +106,7 @@ class Repo private constructor() {
         id: String,
         name: String,
         bakes: List<BakePreset>,
-        plateTotal: Int = 0,
-        plateNew: Int = 0,
-        plateSpec: String = "",
+        plates: List<Plate> = emptyList(),
     ) {
         val n = name.trim()
         if (n.isEmpty()) return
@@ -121,10 +114,7 @@ class Repo private constructor() {
             s.products.firstOrNull { it.id == id }?.apply {
                 this.name = n
                 this.bakes = bakes.toMutableList()
-                val total = plateTotal.coerceIn(0, 99)
-                this.plateTotal = total
-                this.plateNew = plateNew.coerceIn(0, total)
-                this.plateSpec = plateSpec.trim()
+                this.plates = plates.map { it.copy(id = it.id.ifBlank { "pl_" + uid() }) }.toMutableList()
             }
         }
     }
