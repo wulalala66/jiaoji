@@ -67,9 +67,24 @@ fun ProductsScreen(state: AppState) {
             p.bakes.any { "${it.tempC} ${it.minutes}".contains(key) }
     }
 
+    /**
+     * 点条件 = 直接给系统时钟写一个倒计时。
+     *
+     * 用 android.intent.action.SET_TIMER，不需要任何权限，OPPO/华为/小米/三星的
+     * 自带时钟都认；到点由系统响铃，App 被杀也不影响。
+     * 极少数机型没有能接这个动作的时钟 App，才退回应用内计时。
+     */
     fun start(p: Product, b: BakePreset) {
         TimerAlert.cancel(ctx)
+        val label = "${p.name} ${b.tempC}℃"
+        if (SystemTimer.start(ctx, b.minutes, label)) {
+            // 系统时钟接管了，App 这边不再重复计时
+            Repo.I.stopTimer()
+            Toast0(ctx, "已交给系统时钟：${b.minutes} 分钟（${label}）")
+            return
+        }
         Repo.I.startTimer(p.name, b.tempC, b.minutes)
+        Toast0(ctx, "这台手机没有可调用的时钟，改用应用内计时")
     }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
@@ -142,7 +157,7 @@ fun ProductsScreen(state: AppState) {
             }
             item {
                 Text(
-                    "点一下条件开始计时，长按产品可以改。",
+                    "点一下条件 → 交给系统时钟计时；长按产品可以改。",
                     style = MaterialTheme.typography.bodySmall,
                     color = Ink3,
                     modifier = Modifier.padding(top = 6.dp),
@@ -159,6 +174,7 @@ fun ProductsScreen(state: AppState) {
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("「${p.name}」有 ${p.bakes.size} 条条件，点哪条就按哪条计时。", style = MaterialTheme.typography.bodySmall, color = Ink3)
+                    Text("会用系统时钟计时，到点由手机自己响。", style = MaterialTheme.typography.bodySmall, color = Ink3)
                     p.bakes.forEach { b ->
                         Surface(
                             onClick = {
@@ -248,7 +264,7 @@ private fun TimerBanner(timer: BakeTimer, onPause: () -> Unit, onResume: () -> U
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier.weight(1f),
                 )
-                Text("共 ${timer.minutes} 分", fontSize = 12.sp, color = Ink3)
+                Text("应用内计时 · 共 ${timer.minutes} 分", fontSize = 12.sp, color = Ink3)
             }
             Spacer(Modifier.height(6.dp))
             Text(

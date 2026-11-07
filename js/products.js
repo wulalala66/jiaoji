@@ -19,6 +19,32 @@ function fmtLeft(ms) {
   return h > 0 ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`;
 }
 
+/** 生成 .ics：网页版没有系统时钟 API，交给系统日历是最接近的做法 */
+export function buildIcs(title, startAt, minutes) {
+  const fmt = (ms) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+  const safe = String(title).replace(/[\n,;]/g, " ");
+  return [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//GlueLab//JiaoJi//CN",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:${Date.now()}@jiaoji`,
+    `DTSTAMP:${fmt(Date.now())}`,
+    `DTSTART:${fmt(startAt)}`,
+    `DTEND:${fmt(startAt + minutes * 60000)}`,
+    `SUMMARY:${safe}`,
+    `DESCRIPTION:烘烤计时 ${minutes} 分钟`,
+    "BEGIN:VALARM",
+    "TRIGGER:-PT0M",
+    "ACTION:DISPLAY",
+    `DESCRIPTION:${safe}`,
+    "END:VALARM",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+}
+
 export function renderProducts(root) {
   let keyword = "";
   let firedFor = null;
@@ -73,7 +99,33 @@ export function renderProducts(root) {
       el("div", { class: "timer-head" }, label, el("span", { class: "timer-total" }, `共 ${t.minutes} 分`)),
       clock,
       stateText,
-      el("div", { class: "timer-actions" }, pauseBtn, stopBtn)
+      el(
+        "div",
+        { class: "timer-actions" },
+        pauseBtn,
+        stopBtn,
+        el(
+          "button",
+          {
+            class: "btn btn-ghost btn-sm",
+            type: "button",
+            title: "关掉页面就不响了，交给系统日历更稳",
+            onclick: () => {
+              const blob = new Blob([buildIcs(`${t.productName} 烘烤 ${t.minutes} 分钟`, Date.now() + t.minutes * 60000, t.minutes)], {
+                type: "text/calendar;charset=utf-8",
+              });
+              const url = URL.createObjectURL(blob);
+              const a = el("a", { href: url, download: "烘烤计时.ics" });
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              setTimeout(() => URL.revokeObjectURL(url), 3000);
+              toast("已导出 .ics，用系统日历打开就会到点提醒", "ok", 3600);
+            },
+          },
+          "加到日历"
+        )
+      )
     );
     timerBox.appendChild(panel);
 
