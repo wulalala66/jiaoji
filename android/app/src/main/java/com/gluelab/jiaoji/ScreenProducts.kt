@@ -80,12 +80,12 @@ fun ProductsScreen(state: AppState) {
     var creating by remember { mutableStateOf(false) }
     var choosing by remember { mutableStateOf<Product?>(null) }
     var confirmStop by remember { mutableStateOf(false) }
-    // 拖动期间只改这几个内存状态，一次都不碰数据源 —— 松手才提交。
-    // 参考 sh.calvin.reorderable 的做法：数据不动，靠 translationY 让位。
+    // 拖动期间维护一份「本地顺序」：被拖的卡片始终待在手底下，
+    // 不会因为自动滚动而被 LazyColumn 回收 —— 之前「甩到顶部就断」就是被回收导致的。
+    // 松手才写一次 Repo。
     var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragOrder by remember { mutableStateOf<List<String>?>(null) }
     var dragDelta by remember { mutableFloatStateOf(0f) }
-    var dragFrom by remember { mutableIntStateOf(-1) }
-    var dragTo by remember { mutableIntStateOf(-1) }
     var dragHeight by remember { mutableIntStateOf(0) }
     // 手指在列表坐标系里的 Y：给「停住也滚」的定时器用
     val dragPointerY = remember { mutableFloatStateOf(0f) }
@@ -97,6 +97,32 @@ fun ProductsScreen(state: AppState) {
     val list = state.products.filter { p ->
         key.isBlank() || p.name.contains(key, true) ||
             p.bakes.any { "${it.tempC} ${it.minutes}".contains(key) }
+    }
+    // 拖动时按本地顺序渲染；平时就是正常列表
+    val shown = dragOrder?.let { ids -> ids.mapNotNull { id -> state.products.firstOrNull { it.id == id } } } ?: list
+
+    /** 目标变了：把 id 在本地顺序里挪过去，并抵消这一段槽位位移，卡片继续贴着手 */
+    fun applyTarget(id: String, toIndex: Int, slotDelta: Float) {
+        val order = dragOrder ?: return
+        val from = order.indexOf(id)
+        if (from < 0 || toIndex !in order.indices || toIndex == from) return
+        val next = order.toMutableList()
+        next.removeAt(from)
+        next.add(toIndex, id)
+        dragOrder = next
+        dragDelta -= slotDelta
+    }
+
+    /** 用「被拖卡片当前中心」落在哪一项上，决定新的目标位置 */
+    fun followFinger() {
+        val id = draggingId ?: return
+        val info = listState.layoutInfo
+        val cur = info.visibleItemsInfo.firstOrNull { it.key == id } ?: return
+        val center = cur.offset + dragHeight / 2f + dragDelta
+        val over = info.visibleItemsInfo.firstOrNull { center >= it.offset && center < it.offset + it.size }
+        if (over != null && over.key != id) {
+            applyTarget(id, over.index, (over.offset - cur.offset).toFloat())
+        }
     }
 
     /**
@@ -138,13 +164,7 @@ fun ProductsScreen(state: AppState) {
             }
             if (step != 0f) {
                 listState.dispatchRawDelta(step)
-                val fresh = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == draggingId }
-                if (fresh != null) {
-                    val center = fresh.offset + dragHeight / 2f + dragDelta
-                    listState.layoutInfo.visibleItemsInfo
-                        .firstOrNull { center >= it.offset && center < it.offset + it.size }
-                        ?.let { if (it.key != draggingId) dragTo = it.index }
-                }
+                followFinger()
             }
             delay(16)
         }
@@ -182,31 +202,19 @@ fun ProductsScreen(state: AppState) {
             contentPadding = PaddingValues(bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            itemsIndexed(list, key = { _, p -> p.id }) { index, p ->
-                // 别的卡片要往哪个方向让位：被拖的在往下走，中间的往上让一格，反之亦然
-                val targetShift = when {
-                    draggingId == null || dragTo < 0 || dragFrom < 0 || draggingId == p.id -> 0f
-                    index in (dragFrom + 1)..dragTo -> -dragHeight.toFloat()
-                    index in dragTo until dragFrom -> dragHeight.toFloat()
-                    else -> 0f
-                }
-                val shift by animateFloatAsState(
-                    targetValue = targetShift,
-                    animationSpec = spring(dampingRatio = 0.85f, stiffness = 900f),
-                    label = "shift",
-                )
+            itemsIndexed(shown, key = { _, p -> p.id }) { index, p ->
                 AppCard(
                     modifier = Modifier
                         .zIndex(if (draggingId == p.id) 1f else 0f)
                         .graphicsLayer {
-                            val dragging = draggingId == p.id
-                            translationY = if (dragging) dragDelta else shift
-                            if (dragging) {
+                            if (draggingId == p.id) {
+                                translationY = dragDelta
                                 scaleX = 1.02f
                                 scaleY = 1.02f
                                 shadowElevation = 12.dp.toPx()
                             }
-                        },
+                        }
+                        .then(if (draggingId == p.id) Modifier else Modifier.animateItem()),
                     onClick = {
                         when {
                             p.bakes.isEmpty() -> Toast0(ctx, "「${p.name}」还没有烘烤条件，长按可以编辑")
@@ -255,10 +263,10 @@ fun ProductsScreen(state: AppState) {
                                     val vis = listState.layoutInfo.visibleItemsInfo
                                         .firstOrNull { it.key == p.id } ?: return@awaitEachGesture
                                     draggingId = p.id
-                                    dragFrom = vis.index
-                                    dragTo = vis.index
+                                    dragOrder = list.map { it.id }
                                     dragHeight = vis.size
                                     dragDelta = 0f
+                                    dragPointerY.floatValue = vis.offset + down.position.y
                                     var lastY = down.position.y
 
                                     try {
@@ -270,24 +278,18 @@ fun ProductsScreen(state: AppState) {
                                             dragDelta += ch.position.y - lastY
                                             lastY = ch.position.y
 
-                                            // 记录手指在列表里的绝对位置
+                                            // 记录手指在列表里的绝对位置（自动滚动定时器要用）
                                             val info = listState.layoutInfo
                                             val here = info.visibleItemsInfo
                                                 .firstOrNull { it.key == p.id } ?: continue
-                                            dragPointerY.value = here.offset + ch.position.y + dragDelta
-
-                                            // 目标位置：被拖卡片中心落在哪一项上
-                                            val center = here.offset + dragHeight / 2f + dragDelta
-                                            info.visibleItemsInfo
-                                                .firstOrNull { center >= it.offset && center < it.offset + it.size }
-                                                ?.let { if (it.key != p.id) dragTo = it.index }
+                                            dragPointerY.floatValue = here.offset + ch.position.y + dragDelta
+                                            followFinger()
                                         }
                                     } finally {
-                                        val to = dragTo
+                                        val to = dragOrder?.indexOf(p.id) ?: -1
                                         draggingId = null
+                                        dragOrder = null
                                         dragDelta = 0f
-                                        dragFrom = -1
-                                        dragTo = -1
                                         // 松手才提交一次：整个拖动过程只写一次库
                                         if (to >= 0 && to != vis.index) Repo.I.moveProduct(p.id, to)
                                     }
