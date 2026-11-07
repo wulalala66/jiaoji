@@ -19,7 +19,29 @@ function fmtLeft(ms) {
   return h > 0 ? `${h}:${p(m)}:${p(s)}` : `${p(m)}:${p(s)}`;
 }
 
-/** 生成 .ics：网页版没有系统时钟 API，交给系统日历是最接近的做法 */
+/**
+ * 安卓浏览器里用 intent:// 直接调系统时钟的 SET_TIMER。
+ *
+ * 参数类型前缀：i.=int，S.=String，b.=boolean（大小写有讲究）。
+ * 桌面浏览器和 iOS 不支持，直接返回 false。
+ */
+export function trySystemTimer(minutes, label) {
+  const ua = typeof navigator === "undefined" ? "" : navigator.userAgent || "";
+  if (!/Android/i.test(ua)) return false;
+  const url =
+    "intent://#Intent;action=android.intent.action.SET_TIMER;" +
+    `i.android.intent.extra.alarm.LENGTH=${minutes * 60};` +
+    `S.android.intent.extra.alarm.MESSAGE=${encodeURIComponent(label)};` +
+    "b.android.intent.extra.alarm.SKIP_UI=true;end";
+  try {
+    window.location.href = url;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 生成 .ics：没有系统时钟 API 时，交给系统日历 */
 export function buildIcs(title, startAt, minutes) {
   const fmt = (ms) => new Date(ms).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
   const safe = String(title).replace(/[\n,;]/g, " ");
@@ -75,7 +97,9 @@ export function renderProducts(root) {
 
   const list = el("div", { class: "list" });
   root.appendChild(list);
-  root.appendChild(el("p", { class: "hint foot-hint" }, "点一下条件开始计时，长按产品可以改。"));
+  root.appendChild(el("p", { class: "hint foot-hint" }, /Android/i.test(typeof navigator === "undefined" ? "" : navigator.userAgent || "")
+      ? "点一下条件 → 交给系统时钟计时；长按产品可以改。"
+      : "点一下条件开始页面内计时（关掉页面就不响了，可用「加到日历」）；长按产品可以改。"));
 
   // ---------------------------------------------------------------- 计时条
   function drawTimer() {
@@ -213,13 +237,22 @@ export function renderProducts(root) {
 
   // ---------------------------------------------------------------- 列表
   function start(p, b) {
+    const label = `${p.name} ${b.temp}℃`;
+    // 安卓浏览器：和安卓 App 一样，直接交给系统时钟
+    if (trySystemTimer(b.minutes, label)) {
+      actions.stopTimer();
+      drawTimer();
+      toast(`已交给系统时钟：${b.minutes} 分钟`, "ok", 3200);
+      return;
+    }
+    // 其它浏览器没有系统时钟接口，用页面内计时
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission().catch(() => {});
     }
     actions.startTimer(p.name, b.temp, b.minutes);
     firedFor = null;
     drawTimer();
-    toast(`开始计时：${p.name} ${b.temp}℃ ${b.minutes}分`, "ok");
+    toast(`开始计时：${label} ${b.minutes}分（关掉页面就不响了，可以点「加到日历」）`, "ok", 3600);
   }
 
   function tapProduct(p) {
