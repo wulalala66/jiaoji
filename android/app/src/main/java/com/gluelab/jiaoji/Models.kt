@@ -326,3 +326,6 @@ object Codec {
         return s
     }
 }
+
+fun AppState.productOf(id: String?): Product? =
+    if (id == null) null else products.firstOrNull { it.id == id }
