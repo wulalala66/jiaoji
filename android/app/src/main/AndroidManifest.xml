@@ -14,6 +14,11 @@
         <intent>
             <action android:name="android.intent.action.SET_ALARM" />
         </intent>
+        <!-- ColorOS / realme UI 时钟的免权限入口 -->
+        <intent><action android:name="com.oplus.alarmclock.AI_SET_TIMER" /></intent>
+        <intent><action android:name="com.coloros.alarmclock.AI_SET_TIMER" /></intent>
+        <intent><action android:name="com.oplus.alarmclock.AlarmClock" /></intent>
+        <intent><action android:name="com.coloros.alarmclock.AlarmClock" /></intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:mimeType="text/calendar" />

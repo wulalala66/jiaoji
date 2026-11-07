@@ -77,10 +77,11 @@ fun ProductsScreen(state: AppState) {
     fun start(p: Product, b: BakePreset) {
         TimerAlert.cancel(ctx)
         val label = "${p.name} ${b.tempC}℃"
-        if (SystemTimer.start(ctx, b.minutes, label)) {
+        val via = SystemTimer.start(ctx, b.minutes, label)
+        if (via != null) {
             // 系统时钟接管了，App 这边不再重复计时
             Repo.I.stopTimer()
-            Toast0(ctx, "已交给系统时钟：${b.minutes} 分钟（${label}）")
+            Toast0(ctx, "已交给系统时钟：${b.minutes} 分钟（$via）")
             return
         }
         Repo.I.startTimer(p.name, b.tempC, b.minutes)

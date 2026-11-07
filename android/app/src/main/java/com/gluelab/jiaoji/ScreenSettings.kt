@@ -56,6 +56,20 @@ fun SettingsScreen(state: AppState) {
                 )
             }
 
+            SectionHeader("系统时钟")
+            AppCard {
+                Text(
+                    "点烘烤条件时会交给系统时钟计时。如果那台机器上一直没反应，" +
+                        "点下面的按钮，把结果复制发给我，我就能知道该用哪个入口。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Ink3,
+                )
+                Spacer(Modifier.height(10.dp))
+                PrimaryButton("检测系统时钟") {
+                    Share.text(ctx, "胶记 · 系统时钟自检", SystemTimer.probeReport(ctx))
+                }
+            }
+
             SectionHeader("关于")
             AppCard {
                 KeyValue("版本", BuildConfig.VERSION_NAME)

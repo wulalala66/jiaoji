@@ -1,128 +1,133 @@
 package com.gluelab.jiaoji
 
-import android.provider.AlarmClock
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
-import android.os.Build
+import android.provider.AlarmClock as AC
 
 /**
- * 把倒计时交给系统时钟 App。
+ * 把倒计时交给系统时钟。
  *
- * 为什么这么做：
- *  · `android.intent.action.SET_TIMER` 是 Android 的公开标准动作，OPPO/华为/小米/三星
- *    自带的时钟都实现了它，不需要任何权限，也不用跟厂商谈合作；
- *  · 系统时钟到点会自己响铃 + 震动 + 在锁屏上显示，比我们自己在后台守着可靠得多
- *    （我们的进程被系统杀掉就不会响，系统时钟不会）。
+ * 为什么要这么绕：
+ *  · AOSP 的标准做法是 `android.intent.action.SET_TIMER`，但 ColorOS 的时钟把接收它的
+ *    `HandleApiActivity` 挂上了 `android:permission="com.android.alarm.permission.SET_ALARM"`，
+ *    第三方 App 调进去会被 SecurityException 挡掉 —— 这就是「显示没有时钟 App」的真正原因。
+ *  · 但同一个时钟里还有一条**没有权限保护**的路：`com.oplus.alarmclock.AlarmClock`
+ *    （exported=true），它接的是 `com.oplus.alarmclock.AI_SET_TIMER` ——
+ *    这正是 ColorOS 内部把标准 SET_TIMER 转发过去时用的 action。
  *
- * 拿不到时钟 App 的机型（极少数）再退一步用 SET_ALARM。
+ * 所以这里按「标准 → 厂商 → 闹钟 → 应用内」四级依次尝试，哪一级成功就用哪一级。
  */
 object SystemTimer {
 
+    data class Attempt(val name: String, val intent: Intent)
+
     /**
-     * 调起系统时钟的「计时器」。
-     * @return true = 成功交给系统了；false = 这台机器上没有能接这个动作的 App
+     * 按优先级排好的候选。厂商 action 同时带上标准 extra 和 OPPO 自己的 extra，
+     * 它读哪个都能拿到值。
      */
-    fun start(ctx: Context, minutes: Int, label: String): Boolean {
-        if (minutes <= 0) return false
+    private fun candidates(label: String, minutes: Int): List<Attempt> {
         val seconds = minutes * 60
-        if (tryIntent(ctx, timerIntent(label, seconds))) return true
-        // 少数机型只认「闹钟」，用 SET_ALARM 兜底（会定在 N 分钟后的整点时刻）
-        val at = System.currentTimeMillis() + seconds * 1000L
-        if (tryIntent(ctx, alarmIntent(label, at))) return true
-        return false
+        val length = seconds
+
+        fun base(action: String) = Intent(action)
+            .putExtra(AC.EXTRA_MESSAGE, label)
+            .putExtra(AC.EXTRA_LENGTH, length)
+            .putExtra(AC.EXTRA_SKIP_UI, true)
+            // OPPO/部分厂商的私有字段，多给几个不吃亏
+            .putExtra("extra_start", true)
+            .putExtra("duration", length * 1000)
+            .putExtra("timer_duration", length * 1000)
+            .putExtra("EXTRA_TIMER_DURATION", length * 1000)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        return listOf(
+            Attempt("标准 SET_TIMER", base(AC.ACTION_SET_TIMER)),
+            Attempt("OPPO AI_SET_TIMER", base("com.oplus.alarmclock.AI_SET_TIMER")),
+            Attempt("ColorOS AI_SET_TIMER", base("com.coloros.alarmclock.AI_SET_TIMER")),
+            Attempt("OPPO 时钟主界面", base("com.oplus.alarmclock.AlarmClock")),
+            Attempt("ColorOS 时钟主界面", base("com.coloros.alarmclock.AlarmClock")),
+        )
     }
 
-    private fun timerIntent(label: String, seconds: Int): Intent =
-        Intent(AlarmClock.ACTION_SET_TIMER)
-            .putExtra(AlarmClock.EXTRA_MESSAGE, label)
-            .putExtra(AlarmClock.EXTRA_LENGTH, seconds)
-            // true = 尽量让时钟 App 直接开始计时，不用再按一下「开始」
-            .putExtra(AlarmClock.EXTRA_SKIP_UI, true)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-    private fun alarmIntent(label: String, atMillis: Long): Intent =
-        Intent(AlarmClock.ACTION_SET_ALARM)
-            .putExtra(AlarmClock.EXTRA_MESSAGE, label)
-            .putExtra(AlarmClock.EXTRA_HOUR, 0)
-            .putExtra(AlarmClock.EXTRA_MINUTES, 0)
-            .putExtra(AlarmClock.EXTRA_SKIP_UI, false)
-            .apply { putExtra("android.intent.extra.alarm.TIME_IN_MILLIS", atMillis) }
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-    private fun tryIntent(ctx: Context, intent: Intent): Boolean {
-        // 不先 resolveActivity 就 startActivity，抛异常再兜底 —— 少一次跨进程查询
-        return try {
-            ctx.startActivity(intent)
-            true
-        } catch (_: ActivityNotFoundException) {
-            false
-        } catch (_: SecurityException) {
-            false
-        } catch (_: Throwable) {
-            false
-        }
+    /** 最后一个兜底：标准闹钟（定在 N 分钟后的整点） */
+    private fun alarmAttempt(label: String, minutes: Int): Attempt {
+        val cal = java.util.Calendar.getInstance()
+        cal.timeInMillis = System.currentTimeMillis() + minutes * 60_000L
+        return Attempt(
+            "标准 SET_ALARM",
+            Intent(AC.ACTION_SET_ALARM)
+                .putExtra(AC.EXTRA_MESSAGE, label)
+                .putExtra(AC.EXTRA_HOUR, cal.get(java.util.Calendar.HOUR_OF_DAY))
+                .putExtra(AC.EXTRA_MINUTES, cal.get(java.util.Calendar.MINUTE))
+                .putExtra(AC.EXTRA_SKIP_UI, false)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
     }
 
     /**
-     * 生成一个 .ics 日历事件（兜底方案，网页版也用它）。
-     * 手机自带日历能直接打开，到点也会提醒。
+     * 依次尝试，返回成功的那一级名字；全都失败返回 null。
      */
-    fun ics(title: String, startAt: Long, minutes: Int): String {
-        fun fmt(ms: Long): String {
-            val f = java.text.SimpleDateFormat("yyyyMMdd'T'HHmmss'Z'", java.util.Locale.US)
-            f.timeZone = java.util.TimeZone.getTimeZone("UTC")
-            return f.format(java.util.Date(ms))
+    fun start(ctx: Context, minutes: Int, label: String): String? {
+        if (minutes <= 0) return null
+        for (a in candidates(label, minutes) + alarmAttempt(label, minutes)) {
+            if (launch(ctx, a.intent)) return a.name
         }
-        val end = startAt + minutes * 60_000L
-        val safe = title.replace("\n", " ").replace(",", "\\,")
-        return buildString {
-            append("BEGIN:VCALENDAR\r\n")
-            append("VERSION:2.0\r\n")
-            append("PRODID:-//GlueLab//JiaoJi//CN\r\n")
-            append("CALSCALE:GREGORIAN\r\n")
-            append("BEGIN:VEVENT\r\n")
-            append("UID:").append(System.currentTimeMillis()).append("@jiaoji\r\n")
-            append("DTSTAMP:").append(fmt(System.currentTimeMillis())).append("\r\n")
-            append("DTSTART:").append(fmt(startAt)).append("\r\n")
-            append("DTEND:").append(fmt(end)).append("\r\n")
-            append("SUMMARY:").append(safe).append("\r\n")
-            append("DESCRIPTION:烘烤计时 ").append(minutes).append(" 分钟\r\n")
-            append("BEGIN:VALARM\r\n")
-            append("TRIGGER:-PT0M\r\n")
-            append("ACTION:DISPLAY\r\n")
-            append("DESCRIPTION:").append(safe).append("\r\n")
-            append("END:VALARM\r\n")
-            append("END:VEVENT\r\n")
-            append("END:VCALENDAR\r\n")
-        }
+        return null
     }
 
-    /** 打开系统日历（兜底用） */
-    fun openCalendar(ctx: Context, ics: String): Boolean {
-        return try {
-            val intent = Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(
-                    Uri.parse("data:text/calendar;charset=utf8," + Uri.encode(ics)),
-                    "text/calendar",
-                )
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    private fun launch(ctx: Context, intent: Intent): Boolean = try {
+        ctx.startActivity(intent)
+        true
+    } catch (_: ActivityNotFoundException) {
+        false
+    } catch (_: SecurityException) {
+        false
+    } catch (_: Throwable) {
+        false
+    }
+
+    // ---------------------------------------------------------------- 自检
+
+    /** 一条候选在这台机器上能不能用（给设置页的自检用） */
+    data class Probe(val name: String, val action: String, val handlers: Int, val error: String = "")
+
+    fun probe(ctx: Context): List<Probe> {
+        val out = ArrayList<Probe>()
+        for (a in candidates("测试", 5)) {
+            val action = a.intent.action ?: ""
+            val n = try {
+                ctx.packageManager.queryIntentActivities(a.intent, 0).size
+            } catch (e: Throwable) {
+                -1
             }
-            ctx.startActivity(intent)
-            true
-        } catch (_: Throwable) {
-            false
+            out.add(Probe(a.name, action, n))
         }
+        val alarm = alarmAttempt("测试", 5)
+        out.add(
+            Probe(
+                alarm.name,
+                alarm.intent.action ?: "",
+                try {
+                    ctx.packageManager.queryIntentActivities(alarm.intent, 0).size
+                } catch (e: Throwable) {
+                    -1
+                },
+            )
+        )
+        return out
     }
 
-    /** 这个机型支不支持调起系统计时器（给 UI 决定要不要显示按钮） */
-    fun available(ctx: Context): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.KITKAT) return false
-        return try {
-            ctx.packageManager.resolveActivity(timerIntent("x", 60), 0) != null
-        } catch (_: Throwable) {
-            false
+    /** 把自检结果拼成一段能直接复制发出来的文字 */
+    fun probeReport(ctx: Context): String {
+        val sb = StringBuilder()
+        sb.append("机型：").append(android.os.Build.MANUFACTURER).append(' ').append(android.os.Build.MODEL).append('\n')
+        sb.append("系统：Android ").append(android.os.Build.VERSION.RELEASE).append('\n')
+        probe(ctx).forEach { p ->
+            sb.append(if (p.handlers > 0) "✓ " else "✗ ")
+                .append(p.name).append("  (").append(p.action).append(")  处理器 ")
+                .append(if (p.handlers < 0) "查询失败" else p.handlers.toString()).append(" 个\n")
         }
+        return sb.toString()
     }
 }
