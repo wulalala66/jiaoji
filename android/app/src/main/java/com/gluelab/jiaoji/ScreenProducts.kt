@@ -15,7 +15,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.filled.Menu
@@ -174,24 +175,43 @@ fun ProductsScreen(state: AppState) {
                     if (key.isBlank()) {
                         DragHandle(
                             active = draggingId == p.id,
-                            modifier = Modifier.pointerInput(p.id, list) {
-                                detectDragGestures(
-                                    onDragStart = { draggingId = p.id },
-                                    onDragEnd = { draggingId = null },
-                                    onDragCancel = { draggingId = null },
-                                ) { change, amount ->
-                                    change.consume()
-                                    val item = listState.layoutInfo.visibleItemsInfo
-                                        .firstOrNull { it.key == p.id } ?: return@detectDragGestures
-                                    val threshold = item.size * 0.55f
-                                    val target = when {
-                                        amount.y > 0 && amount.y >= threshold -> index + 1
-                                        amount.y < 0 && -amount.y >= threshold -> index - 1
-                                        else -> -1
-                                    }
-                                    if (target in list.indices) {
-                                        val toIndex = state.products.indexOfFirst { it.id == list[target].id }
-                                        if (toIndex >= 0) Repo.I.moveProduct(p.id, toIndex)
+                            modifier = Modifier.pointerInput(p.id) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    // 关键：一按下就吃掉，父级的 combinedClickable 收不到这次按下，
+                                    // 长按编辑就不会被触发（之前两个手势打架，把手根本拖不动）
+                                    down.consume()
+                                    draggingId = p.id
+                                    var lastY = down.position.y
+                                    var acc = 0f
+                                    try {
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val ch = event.changes.firstOrNull { it.id == down.id } ?: break
+                                            if (!ch.pressed) break
+                                            val dy = ch.position.y - lastY
+                                            lastY = ch.position.y
+                                            ch.consume()
+                                            acc += dy
+
+                                            val info = listState.layoutInfo.visibleItemsInfo
+                                                .firstOrNull { it.key == p.id }
+                                            val threshold = (info?.size ?: 160) * 0.5f
+                                            // 用实时状态算当前位置，避免闭包里 index 过期
+                                            val prods = Repo.I.state.value.products
+                                            val cur = prods.indexOfFirst { it.id == p.id }
+                                            val target = when {
+                                                acc > threshold -> cur + 1
+                                                acc < -threshold -> cur - 1
+                                                else -> -1
+                                            }
+                                            if (cur >= 0 && target in prods.indices) {
+                                                Repo.I.moveProduct(p.id, target)
+                                                acc = 0f
+                                            }
+                                        }
+                                    } finally {
+                                        draggingId = null
                                     }
                                 }
                             },

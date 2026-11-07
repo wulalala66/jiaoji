@@ -292,6 +292,8 @@ export function renderProducts(root) {
       timer = 0;
     };
     node.addEventListener("pointerdown", (e) => {
+      // 从把手按下去的，交给拖动，别启动长按编辑
+      if (e.target?.closest?.(".drag-handle")) return;
       if (e.pointerType === "mouse" && e.button !== 0) return;
       sx = e.clientX;
       sy = e.clientY;
@@ -543,6 +545,7 @@ export function renderProducts(root) {
     const card = handle.closest(".product-card");
     if (!card) return;
     e.preventDefault();
+    e.stopPropagation();
     dragging = card;
     card.classList.add("dragging");
     handle.setPointerCapture?.(e.pointerId);
