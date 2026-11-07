@@ -283,7 +283,6 @@ fun ProductsScreen(state: AppState) {
                                                 ?.let { if (it.key != p.id) dragTo = it.index }
                                         }
                                     } finally {
-                                    } finally {
                                         val to = dragTo
                                         draggingId = null
                                         dragDelta = 0f
