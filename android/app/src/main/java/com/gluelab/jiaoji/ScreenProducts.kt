@@ -120,6 +120,36 @@ fun ProductsScreen(state: AppState) {
         Toast0(ctx, "这台手机没有可调用的时钟，改用应用内计时")
     }
 
+    // 自动滚动：手指停在上下边缘时也一直滚。
+    // 必须放在页面级的 LaunchedEffect 里 —— awaitEachGesture 是受限挂起作用域，不能 launch。
+    LaunchedEffect(draggingId) {
+        if (draggingId == null) return@LaunchedEffect
+        val edgeZone = with(density) { 80.dp.toPx() }
+        val maxStep = with(density) { 24.dp.toPx() }
+        while (isActive) {
+            val info = listState.layoutInfo
+            val y = dragPointerY.floatValue
+            val step = when {
+                y > info.viewportEndOffset - edgeZone ->
+                    ((y - (info.viewportEndOffset - edgeZone)) / edgeZone).coerceIn(0f, 1f) * maxStep
+                y < info.viewportStartOffset + edgeZone ->
+                    -(((info.viewportStartOffset + edgeZone) - y) / edgeZone).coerceIn(0f, 1f) * maxStep
+                else -> 0f
+            }
+            if (step != 0f) {
+                listState.dispatchRawDelta(step)
+                val fresh = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.key == draggingId }
+                if (fresh != null) {
+                    val center = fresh.offset + dragHeight / 2f + dragDelta
+                    listState.layoutInfo.visibleItemsInfo
+                        .firstOrNull { center >= it.offset && center < it.offset + it.size }
+                        ?.let { if (it.key != draggingId) dragTo = it.index }
+                }
+            }
+            delay(16)
+        }
+    }
+
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
             Text("产品条件表", style = MaterialTheme.typography.titleLarge, color = Ink)
@@ -219,7 +249,6 @@ fun ProductsScreen(state: AppState) {
                                 val edgeZonePx = 80.dp.toPx()
                                 val maxStepPx = 24.dp.toPx()
                                 awaitEachGesture {
-                                  coroutineScope {
                                     val down = awaitFirstDown(requireUnconsumed = false)
                                     // 一按下就吃掉，父级的长按编辑收不到，两个手势不再打架
                                     down.consume()
@@ -231,38 +260,6 @@ fun ProductsScreen(state: AppState) {
                                     dragHeight = vis.size
                                     dragDelta = 0f
                                     var lastY = down.position.y
-
-                                    // 关键：自动滚动跑在独立的定时器里。
-                                    // 原来只在每个指针事件里推一次，手指停在边缘不动就不滚了，
-                                    // 结果只能一下一下地蹭。
-                                    val autoScroll = launch {
-                                        while (isActive) {
-                                            val info = listState.layoutInfo
-                                            val y = dragPointerY.value
-                                            val step = when {
-                                                y > info.viewportEndOffset - edgeZonePx ->
-                                                    ((y - (info.viewportEndOffset - edgeZonePx)) / edgeZonePx)
-                                                        .coerceIn(0f, 1f) * maxStepPx
-                                                y < info.viewportStartOffset + edgeZonePx ->
-                                                    -(((info.viewportStartOffset + edgeZonePx) - y) / edgeZonePx)
-                                                        .coerceIn(0f, 1f) * maxStepPx
-                                                else -> 0f
-                                            }
-                                            if (step != 0f) {
-                                                listState.dispatchRawDelta(step)
-                                                // 滚动之后目标位置要跟着变
-                                                val fresh = listState.layoutInfo.visibleItemsInfo
-                                                    .firstOrNull { it.key == p.id }
-                                                if (fresh != null) {
-                                                    val center = fresh.offset + dragHeight / 2f + dragDelta
-                                                    listState.layoutInfo.visibleItemsInfo
-                                                        .firstOrNull { center >= it.offset && center < it.offset + it.size }
-                                                        ?.let { if (it.key != p.id) dragTo = it.index }
-                                                }
-                                            }
-                                            delay(16)
-                                        }
-                                    }
 
                                     try {
                                         while (true) {
@@ -286,7 +283,6 @@ fun ProductsScreen(state: AppState) {
                                                 ?.let { if (it.key != p.id) dragTo = it.index }
                                         }
                                     } finally {
-                                        autoScroll.cancel()
                                     } finally {
                                         val to = dragTo
                                         draggingId = null
@@ -296,7 +292,6 @@ fun ProductsScreen(state: AppState) {
                                         // 松手才提交一次：整个拖动过程只写一次库
                                         if (to >= 0 && to != vis.index) Repo.I.moveProduct(p.id, to)
                                     }
-                                  }
                                 }
                             },
                         )
