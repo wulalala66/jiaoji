@@ -112,7 +112,7 @@ class RepoTest {
     fun productWithoutPlatesSaysSo() {
         val id = Repo.I.addProduct("不用板", emptyList())!!
         val p = state().productOf(id)!!
-        assertEquals(0, p.plateTotal)
+        assertEquals(0, p.plates.size)
         assertEquals("不用电泳板", p.plateText())
     }
 
@@ -213,25 +213,25 @@ class RepoTest {
 
     @Test
     fun importLegacyBackupStillWorks() {
-        // 老版本（带取样/烘箱）的备份：多出来的字段要能被忽略，配方照常导入
+        // 老版本（带取样/烘箱/AI/配方）的备份：多出来的字段要能被忽略，条件表照常导入
         val legacy = """
             {"v":1,
              "settings":{"preAlertMinutes":5,"sound":true,"ai":{"baseUrl":"https://x/v1","model":"m"}},
              "types":[],"customers":["老客户"],"ovens":[],
              "products":[{"id":"p1","name":"老产品","bakes":[{"temp":150,"minutes":25}]}],
-             "formulas":[{"id":"f1","name":"老配方","totalG":600,"items":[{"id":"i1","name":"A","percent":100}]}],
+             "formulas":[{"id":"f1","name":"老配方","totalG":600,"items":[]}],
              "sampling":[],"samples":[],"bakes":[],"seq":{}}
         """.trimIndent()
         assertTrue(Repo.I.importJson(legacy))
-        assertNotNull(state().formulaOf("f1"))
-        assertEquals("https://x/v1", state().settings.ai.baseUrl)
         assertEquals("老产品", state().productOf("p1")?.name)
+        assertEquals(150, state().productOf("p1")?.bakes?.first()?.tempC)
     }
 
     @Test
     fun defaultsGiveSomethingToLookAt() {
         val d = Defaults.state()
-        assertTrue("第一次打开应该有一条示例配方", d.formulas.isNotEmpty())
         assertTrue("条件表应该有内置数据", d.products.size >= 10)
+        assertTrue("打开时不该有正在跑的计时", d.timer == null)
+        assertTrue("历史一开始是空的", d.densityLog.isEmpty())
     }
 }
