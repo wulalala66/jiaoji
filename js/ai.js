@@ -8,7 +8,7 @@
    ============================================================ */
 
 import { el, num, clear } from "./utils.js";
-import { actions, getState, gramsOf, restPercent, sumPercent } from "./store.js";
+import { actions, getState, gramsOf, plateText, restPercent, sumPercent } from "./store.js";
 import { toast } from "./ui.js";
 
 // ---------------------------------------------------------------- 工具定义
@@ -24,7 +24,7 @@ const TOOL_DEFS = [
   fn("fill_rest", "把剩余百分比补到某一行（不填 item 就补给占比最大的那行）", { formulaId: p("string", "配方 id"), item: p("string", "原料名或 id，可空") }, ["formulaId"]),
   fn("clear_items", "清空配方的所有原料。破坏性操作：必须先把要删的原料列给用户确认，用户同意后才带 confirm=true 调用", { formulaId: p("string", "配方 id"), confirm: p("boolean", "用户确认清空后传 true") }, ["formulaId"]),
   fn("set_formula_meta", "写配方的实验目的 / 固化温度（会出现在打印的配料单上）", { formulaId: p("string", "配方 id"), purpose: p("string", "实验目的"), cure: p("string", "固化温度，如 140*30") }, ["formulaId"]),
-  fn("get_products", "查产品条件表：产品名对应的烘烤温度和时间", { query: p("string", "产品名关键词，可空") }, []),
+  fn("get_products", "查产品条件表：产品名对应的烘烤温度、时间，以及烘烤要用的电泳板（几块 / 其中几块必须是新板 / 新板要求）", { query: p("string", "产品名关键词，可空") }, []),
   fn("calc", "算一个数学表达式，支持 + - * / % ^ 和括号", { expression: p("string", "表达式，例如 (600*26.33)/100") }, ["expression"]),
 ];
 
@@ -545,7 +545,17 @@ export function runTool(name, argsJson) {
         const q = String(a.query || "").trim().toLowerCase();
         const hit = state.products.filter((x) => !q || x.name.toLowerCase().includes(q));
         if (!hit.length) return { error: `条件表里没有匹配「${a.query}」的产品` };
-        return { products: hit.map((x) => ({ name: x.name, bakes: x.bakes.map((b) => `${b.temp}℃ ${b.minutes}分`) })) };
+        return {
+          products: hit.map((x) => ({
+            name: x.name,
+            bakes: x.bakes.map((b) => `${b.temp}℃ ${b.minutes}分`),
+            // 烘烤要用的电泳板：几块、其中几块必须是新的、新板什么要求
+            ...(x.plateTotal
+              ? { plateTotal: x.plateTotal, plateNew: x.plateNew, ...(x.plateSpec ? { plateSpec: x.plateSpec } : {}) }
+              : {}),
+            plates: plateText(x),
+          })),
+        };
       }
 
       case "calc": {

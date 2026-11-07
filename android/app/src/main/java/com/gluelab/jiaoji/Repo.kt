@@ -78,26 +78,53 @@ class Repo private constructor() {
 
     // ---------------- 产品条件表 ----------------
 
-    fun addProduct(name: String, bakes: List<BakePreset> = emptyList()): String? {
+    fun addProduct(
+        name: String,
+        bakes: List<BakePreset> = emptyList(),
+        plateTotal: Int = 0,
+        plateNew: Int = 0,
+        plateSpec: String = "",
+    ): String? {
         val n = name.trim()
         if (n.isEmpty()) return null
         var id: String? = null
         mutate { s ->
             if (s.products.any { it.name == n }) return@mutate
             val pid = "p_" + uid()
-            s.products.add(Product(id = pid, name = n, bakes = bakes.toMutableList()))
+            val total = plateTotal.coerceIn(0, 99)
+            s.products.add(
+                Product(
+                    id = pid,
+                    name = n,
+                    bakes = bakes.toMutableList(),
+                    plateTotal = total,
+                    plateNew = plateNew.coerceIn(0, total),
+                    plateSpec = plateSpec.trim(),
+                )
+            )
             id = pid
         }
         return id
     }
 
-    fun updateProduct(id: String, name: String, bakes: List<BakePreset>) {
+    fun updateProduct(
+        id: String,
+        name: String,
+        bakes: List<BakePreset>,
+        plateTotal: Int = 0,
+        plateNew: Int = 0,
+        plateSpec: String = "",
+    ) {
         val n = name.trim()
         if (n.isEmpty()) return
         mutate { s ->
             s.products.firstOrNull { it.id == id }?.apply {
                 this.name = n
                 this.bakes = bakes.toMutableList()
+                val total = plateTotal.coerceIn(0, 99)
+                this.plateTotal = total
+                this.plateNew = plateNew.coerceIn(0, total)
+                this.plateSpec = plateSpec.trim()
             }
         }
     }

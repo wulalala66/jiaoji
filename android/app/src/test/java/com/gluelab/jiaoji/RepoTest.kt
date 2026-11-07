@@ -64,6 +64,49 @@ class RepoTest {
     }
 
     @Test
+    fun productPlatesSurviveExportAndImport() {
+        val id = Repo.I.addProduct(
+            "电泳板客户",
+            listOf(BakePreset(160, 20)),
+            plateTotal = 4,
+            plateNew = 1,
+            plateSpec = "2mm 流挂",
+        )!!
+        val p = state().productOf(id)!!
+        assertEquals(4, p.plateTotal)
+        assertEquals(1, p.plateNew)
+        assertEquals("旧板 = 总数 - 新板", 3, p.plateOld)
+        assertTrue("说明里要带上新板要求", p.plateText().contains("2mm 流挂"))
+
+        val json = Repo.I.exportJson()
+        Repo.I.removeProduct(id)
+        assertNull(state().productOf(id))
+
+        assertTrue(Repo.I.importJson(json))
+        val back = state().productOf(id)
+        assertNotNull("导入后电泳板信息不能丢", back)
+        assertEquals(4, back!!.plateTotal)
+        assertEquals(1, back.plateNew)
+        assertEquals("2mm 流挂", back.plateSpec)
+    }
+
+    @Test
+    fun plateNewIsClampedToTotal() {
+        val id = Repo.I.addProduct("越界客户", emptyList(), plateTotal = 2, plateNew = 9)!!
+        val p = state().productOf(id)!!
+        assertEquals("新板数不能超过总数", 2, p.plateNew)
+        assertEquals(0, p.plateOld)
+    }
+
+    @Test
+    fun productWithoutPlatesSaysSo() {
+        val id = Repo.I.addProduct("不用板", emptyList())!!
+        val p = state().productOf(id)!!
+        assertEquals(0, p.plateTotal)
+        assertEquals("不用电泳板", p.plateText())
+    }
+
+    @Test
     fun duplicateProductNameIsRejected() {
         val a = Repo.I.addProduct("同名客户")
         val b = Repo.I.addProduct("同名客户")

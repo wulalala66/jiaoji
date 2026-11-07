@@ -508,6 +508,11 @@ select.input {
   color: var(--brand-strong);
 }
 
+.pill-warn {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
 .chips {
   display: flex;
   flex-wrap: wrap;

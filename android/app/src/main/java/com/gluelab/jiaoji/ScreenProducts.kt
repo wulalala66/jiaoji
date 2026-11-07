@@ -81,6 +81,14 @@ fun ProductsScreen(state: AppState) {
                     )
                     Spacer(Modifier.height(6.dp))
                     BakePresetPills(p.bakes)
+                    if (p.hasPlates) {
+                        Spacer(Modifier.height(6.dp))
+                        Pill(
+                            p.plateText(),
+                            if (p.plateNew > 0) Warn else Ink2,
+                            if (p.plateNew > 0) WarnSoft else SoftBg,
+                        )
+                    }
                 }
             }
             if (list.isEmpty()) {
@@ -119,6 +127,13 @@ private data class PresetRow(val id: String, val temp: String, val min: String)
 @Composable
 private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
     var name by remember { mutableStateOf(existing?.name ?: "") }
+    var plateTotal by remember {
+        mutableStateOf(existing?.plateTotal?.takeIf { it > 0 }?.toString() ?: "")
+    }
+    var plateNew by remember {
+        mutableStateOf(existing?.plateNew?.takeIf { it > 0 }?.toString() ?: "")
+    }
+    var plateSpec by remember { mutableStateOf(existing?.plateSpec ?: "") }
     val rows = remember {
         mutableStateListOf<PresetRow>().apply {
             existing?.bakes?.forEach { add(PresetRow(Repo.uid(), "${it.tempC}", "${it.minutes}")) }
@@ -171,6 +186,44 @@ private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
                 TextButton(onClick = { rows.add(PresetRow(Repo.uid(), "150", "25")) }) {
                     Text("＋ 再加一条条件", color = Brand)
                 }
+
+                Spacer(Modifier.height(10.dp))
+                ThinDivider()
+                Spacer(Modifier.height(10.dp))
+                Text("电泳板（不需要就留空）", style = MaterialTheme.typography.labelSmall, color = Ink3)
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    NumField(
+                        value = plateTotal,
+                        onValueChange = { plateTotal = it.filter { c -> c.isDigit() }.take(2) },
+                        label = "需要几块",
+                        modifier = Modifier.weight(1f),
+                    )
+                    NumField(
+                        value = plateNew,
+                        onValueChange = { plateNew = it.filter { c -> c.isDigit() }.take(2) },
+                        label = "其中新板",
+                        modifier = Modifier.weight(1f),
+                        imeNext = false,
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = plateSpec,
+                    onValueChange = { plateSpec = it },
+                    label = { Text("新板要求", style = MaterialTheme.typography.labelSmall) },
+                    placeholder = { Text("比如 2mm 流挂", style = MaterialTheme.typography.bodySmall, color = Ink3) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyMedium,
+                    colors = fieldColors(),
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "旧板不用填要求。例：安徽万安 4 块 —— 新板 1 块（2mm 流挂），旧板 3 块。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Ink3,
+                )
                 if (confirmDelete) {
                     Text(
                         "删掉「${existing?.name ?: ""}」？",
@@ -189,8 +242,13 @@ private fun ProductEditDialog(existing: Product?, onDismiss: () -> Unit) {
                         val m = r.min.trim().toIntOrNull() ?: return@mapNotNull null
                         if (t in 30..300 && m in 1..600) BakePreset(t, m) else null
                     }
-                    if (existing == null) Repo.I.addProduct(name.trim(), bakes)
-                    else Repo.I.updateProduct(existing.id, name.trim(), bakes)
+                    val total = plateTotal.trim().toIntOrNull()?.coerceIn(0, 99) ?: 0
+                    val fresh = (plateNew.trim().toIntOrNull() ?: 0).coerceIn(0, total)
+                    if (existing == null) {
+                        Repo.I.addProduct(name.trim(), bakes, total, fresh, plateSpec.trim())
+                    } else {
+                        Repo.I.updateProduct(existing.id, name.trim(), bakes, total, fresh, plateSpec.trim())
+                    }
                     onDismiss()
                 },
             ) { Text("保存", color = Brand) }

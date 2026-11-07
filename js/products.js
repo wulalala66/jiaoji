@@ -4,7 +4,7 @@
    ============================================================ */
 
 import { el, debounce, num } from "./utils.js";
-import { actions, getState } from "./store.js";
+import { actions, getState, plateText } from "./store.js";
 import { confirmDialog, emptyHint, openSheet, pill, toast } from "./ui.js";
 
 export function renderProducts(root) {
@@ -67,7 +67,10 @@ export function renderProducts(root) {
               p.bakes.length
                 ? p.bakes.map((b) => pill(`${b.temp}℃ ${b.minutes}分`, "pill-brand"))
                 : el("span", { class: "muted" }, "还没填烘烤条件")
-            )
+            ),
+            p.plateTotal
+              ? el("div", { class: "chips" }, pill("🧫 " + plateText(p), p.plateNew ? "pill-warn" : ""))
+              : null
           )
         )
       );
@@ -127,12 +130,53 @@ export function renderProducts(root) {
       if (existing?.bakes?.length) existing.bakes.forEach((b) => addRow(String(b.temp), String(b.minutes)));
       else addRow();
 
+      const plateTotal = el("input", {
+        class: "input num",
+        type: "text",
+        inputmode: "numeric",
+        value: existing?.plateTotal ? String(existing.plateTotal) : "",
+        placeholder: "0",
+      });
+      const plateNew = el("input", {
+        class: "input num",
+        type: "text",
+        inputmode: "numeric",
+        value: existing?.plateNew ? String(existing.plateNew) : "",
+        placeholder: "0",
+      });
+      const plateSpec = el("input", {
+        class: "input",
+        type: "text",
+        value: existing?.plateSpec || "",
+        placeholder: "比如 2mm 流挂",
+        maxlength: "30",
+      });
+
       body.appendChild(field("产品 / 客户名", nameInput));
       body.appendChild(el("div", { class: "field-label" }, "烘烤条件（可以加多条）"));
       body.appendChild(rows);
       body.appendChild(
         el("button", { class: "btn btn-ghost btn-block", type: "button", onclick: () => addRow("150", "25") }, "＋ 再加一条条件")
       );
+
+      body.appendChild(el("div", { class: "field-label", style: { "margin-top": "6px" } }, "电泳板（不需要就留空）"));
+      body.appendChild(
+        el("div", { class: "grid-2" }, field("需要几块", plateTotal), field("其中新板", plateNew))
+      );
+      body.appendChild(field("新板要求", plateSpec));
+      body.appendChild(
+        el(
+          "p",
+          { class: "hint" },
+          "旧板不用填要求。例：安徽万安 4 块 —— 新板 1 块（2mm 流挂），旧板 3 块。"
+        )
+      );
+
+      const collectPlates = () => ({
+        total: Math.max(0, Math.round(num(plateTotal.value) ?? 0)),
+        fresh: Math.max(0, Math.round(num(plateNew.value) ?? 0)),
+        spec: plateSpec.value.trim(),
+      });
 
       const collect = () => {
         const bakes = [];
@@ -187,8 +231,8 @@ export function renderProducts(root) {
                   nameInput.focus();
                   return;
                 }
-                if (existing) actions.updateProduct(existing.id, name, collect());
-                else if (!actions.addProduct(name, collect())) {
+                if (existing) actions.updateProduct(existing.id, name, collect(), collectPlates());
+                else if (!actions.addProduct(name, collect(), collectPlates())) {
                   toast("已经有同名产品了", "warn");
                   return;
                 }

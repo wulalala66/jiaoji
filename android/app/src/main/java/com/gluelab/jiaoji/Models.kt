@@ -37,12 +37,38 @@ data class BakePreset(var tempC: Int = 140, var minutes: Int = 30) {
     fun text(): String = "${tempC}℃ ${minutes}分"
 }
 
-/** 产品 / 客户对应的烘烤条件（车间那张表） */
+/**
+ * 产品 / 客户对应的烘烤条件（车间那张表）。
+ *
+ * 除了温度时间，还要记「这次烘烤要几块电泳板」：
+ * 有的客户要求新板（还要指定流挂），有的新旧都行。
+ * 例：安徽万安 4 块 —— 新板 1 块（2mm 流挂），旧板 3 块（旧板不管流挂）。
+ */
 data class Product(
     var id: String = "",
     var name: String = "",
     var bakes: MutableList<BakePreset> = mutableListOf(),
-)
+    /** 这次烘烤要几块电泳板，0 = 不需要 */
+    var plateTotal: Int = 0,
+    /** 其中必须用新板的块数（0 = 新旧都行） */
+    var plateNew: Int = 0,
+    /** 新板的要求，比如「2mm 流挂」；旧板不用填 */
+    var plateSpec: String = "",
+) {
+    val plateOld: Int get() = (plateTotal - plateNew).coerceAtLeast(0)
+    val hasPlates: Boolean get() = plateTotal > 0
+
+    /** 列表和 AI 都用这一句 */
+    fun plateText(): String = when {
+        !hasPlates -> "不用电泳板"
+        plateNew <= 0 -> "电泳板 $plateTotal 块（新旧都行）"
+        else -> buildString {
+            append("电泳板 ").append(plateTotal).append(" 块：新 ").append(plateNew)
+            if (plateSpec.isNotBlank()) append("（").append(plateSpec).append("）")
+            if (plateOld > 0) append(" / 旧 ").append(plateOld)
+        }
+    }
+}
 
 /**
  * 配料：一锅固定总量（比如 600g = 100%），每种原料占多少 %。
@@ -148,7 +174,10 @@ object Defaults {
         Product("p05", "润东铭", mutableListOf(BakePreset(160, 20))),
         Product("p06", "润金泽/六安", mutableListOf(BakePreset(150, 30), BakePreset(170, 20))),
         Product("p07", "柳州万安", mutableListOf(BakePreset(160, 20))),
-        Product("p08", "安徽万安", mutableListOf(BakePreset(170, 20), BakePreset(210, 20))),
+        Product(
+            "p08", "安徽万安", mutableListOf(BakePreset(170, 20), BakePreset(210, 20)),
+            plateTotal = 4, plateNew = 1, plateSpec = "2mm 流挂",
+        ),
         Product("p09", "江阴铝板底涂", mutableListOf(BakePreset(155, 30))),
         Product("p10", "五菱灰色底涂", mutableListOf(BakePreset(140, 30))),
         Product("p11", "方达发泡底涂", mutableListOf(BakePreset(160, 20))),
@@ -211,6 +240,11 @@ object Codec {
                     put("bakes", JSONArray().apply {
                         pd.bakes.forEach { b -> put(JSONObject().put("temp", b.tempC).put("minutes", b.minutes)) }
                     })
+                    if (pd.plateTotal > 0) {
+                        put("plateTotal", pd.plateTotal)
+                        put("plateNew", pd.plateNew)
+                        if (pd.plateSpec.isNotBlank()) put("plateSpec", pd.plateSpec)
+                    }
                 })
             }
         })
@@ -261,7 +295,15 @@ object Codec {
                 val j = arr.optJSONObject(i) ?: continue
                 val name = j.optString("name", "").trim()
                 if (name.isEmpty()) continue
-                val pd = Product(id = j.optString("id", "p_$i"), name = name)
+                val total = j.optInt("plateTotal", 0).coerceIn(0, 99)
+                val pd = Product(
+                    id = j.optString("id", "p_$i"),
+                    name = name,
+                    plateTotal = total,
+                    // 新板数不能超过总数，老数据/手改的备份都可能出现越界
+                    plateNew = j.optInt("plateNew", 0).coerceIn(0, total),
+                    plateSpec = j.optString("plateSpec", "").trim(),
+                )
                 j.optJSONArray("bakes")?.let { bs ->
                     for (k in 0 until bs.length()) {
                         val b = bs.optJSONObject(k) ?: continue
