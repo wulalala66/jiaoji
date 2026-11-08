@@ -456,6 +456,18 @@ select.input {
   transition: transform 0.08s, box-shadow 0.15s;
 }
 
+/* 产品卡片是 <button>，浏览器默认 text-align:center，
+   短内容就会居中、长内容撑满才看着靠左，三张卡对不齐。这里强制左对齐。 */
+.product-card {
+  text-align: left;
+  align-items: flex-start;
+}
+
+.product-card .list-main {
+  align-items: stretch;
+  width: 100%;
+}
+
 .list-item:active {
   transform: scale(0.995);
 }
@@ -517,6 +529,8 @@ select.input {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  /* 药丸一律从左边排，短内容也不会跑到中间 */
+  justify-content: flex-start;
 }
 
 .chip-btn {
