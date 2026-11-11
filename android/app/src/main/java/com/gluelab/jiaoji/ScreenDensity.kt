@@ -91,7 +91,6 @@ fun DensityScreen() {
             0 -> m1 = v; 1 -> m2 = v; 2 -> m3 = v
             3 -> m4 = v; 4 -> m5 = v; 5 -> m6 = v
         }
-        if (d.length >= 3 && i < 5) focus[i + 1].requestFocus()
     }
 
     fun goNext(i: Int) {
@@ -150,7 +149,7 @@ fun DensityScreen() {
                     }
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "直接敲数字就行：输 3 2 1 就是 3.21，满三位自动跳到下一格；只有两位按回车也能跳。",
+                        "直接敲数字：输 3 2 1 就是 3.21，小数点不用自己打；用键盘右下角「下一项」切到下一格。",
                         style = MaterialTheme.typography.bodySmall,
                         color = Ink3,
                     )
