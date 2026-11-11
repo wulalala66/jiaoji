@@ -1,6 +1,6 @@
 {
   "name": "jiaoji",
-  "version": "3.3.1",
+  "version": "3.3.2",
   "private": true,
   "type": "module",
   "description": "胶记 — 胶粘剂实验室的随身工具：比重计算、配料单、产品条件表、内置 AI 助手",

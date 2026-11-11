@@ -68,13 +68,16 @@ fun DensityScreen() {
     var clearLog by remember { mutableStateOf(false) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     var reading by remember { mutableStateOf(false) }
+    var online by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val u = cameraUri
         if (!ok || u == null) return@rememberLauncherForActivityResult
         reading = true
         scope.launch {
-            val nums = runCatching { DigitOcr.read(ctx, u) }.getOrNull()
+            val nums = runCatching {
+                if (online) DigitOcr.parse(RemoteOcr.readText(ctx, u)) else DigitOcr.read(ctx, u)
+            }.getOrNull()
             reading = false
             if (nums.isNullOrEmpty()) {
                 Toast.makeText(ctx, "没认出数字，重拍一张或者手动输", Toast.LENGTH_SHORT).show()
@@ -108,12 +111,23 @@ fun DensityScreen() {
             TextButton(
                 onClick = {
                     if (reading) return@TextButton
+                    online = false
                     val dir = java.io.File(ctx.cacheDir, "exports").apply { mkdirs() }
                     val f = java.io.File(dir, "ocr_" + System.currentTimeMillis() + ".jpg")
                     cameraUri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
                     takePhoto.launch(cameraUri!!)
                 },
-            ) { Text(if (reading) "识别中…" else "📷 拍照识别", color = Brand, fontSize = 13.sp) }
+            ) { Text(if (reading) "识别中…" else "📷 识别", color = Brand, fontSize = 13.sp) }
+            TextButton(
+                onClick = {
+                    if (reading) return@TextButton
+                    online = true
+                    val dir = java.io.File(ctx.cacheDir, "exports").apply { mkdirs() }
+                    val f = java.io.File(dir, "ocr_" + System.currentTimeMillis() + ".jpg")
+                    cameraUri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
+                    takePhoto.launch(cameraUri!!)
+                },
+            ) { Text(if (reading) "识别中…" else "☁️ 在线", color = Ink2, fontSize = 13.sp) }
             IconAction(Icons.Filled.Share, Ink2, "分享结果") {
                 Share.text(
                     ctx, "比重计算结果",
