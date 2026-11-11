@@ -13,6 +13,8 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
@@ -48,6 +50,7 @@ class OcrCameraActivity : ComponentActivity() {
         const val EXTRA_NUMS = "nums"
     }
 
+    private lateinit var rootView: FrameLayout
     private lateinit var previewView: PreviewView
     private lateinit var overlay: FrameOverlay
     private lateinit var status: TextView
@@ -64,6 +67,7 @@ class OcrCameraActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         val root = FrameLayout(this)
+        rootView = root
         previewView = PreviewView(this).apply {
             layoutParams = FrameLayout.LayoutParams(-1, -1)
             scaleType = PreviewView.ScaleType.FILL_CENTER
@@ -132,8 +136,9 @@ class OcrCameraActivity : ComponentActivity() {
                     status.text = "拍摄失败"
                     return
                 }
-                status.text = "识别中…"
-                io.execute { recognize(rotate(bitmap, rotation)) }
+                val still = rotate(bitmap, rotation)
+                val band = runCatching { cropBand(still) }.getOrElse { still }
+                showReview(band)
             }
 
             override fun onError(exc: ImageCaptureException) {
@@ -201,47 +206,76 @@ class OcrCameraActivity : ComponentActivity() {
         )
     }
 
-    private fun recognize(src: Bitmap) {
-        val band = cropBand(src)
-        val bw = band.width
-        val bh = band.height
+    /**
+     * 拍完先给用户看这张静止图 —— 手举着对角度很难，拍下来看一眼再决定要不要重拍。
+     */
+    private fun showReview(band: Bitmap) {
+        previewView.visibility = View.GONE
+        overlay.visibility = View.GONE
+        status.text = "看看这张对不对，对了点「识别」"
 
-        // 一格一块。左右各内缩 8%（防止邻居的字蹭进来），
-        // 上下各内缩 14%（格子里常写着别的数，只留中间那一行）。
-        val cellW = bw / 6
-        val cells = (0 until 6).map { i ->
-            val ix = (cellW * 0.08f).toInt()
-            val iy = (bh * 0.14f).toInt()
-            Bitmap.createBitmap(
-                band,
-                i * cellW + ix,
-                iy,
-                (cellW - ix * 2).coerceAtLeast(1),
-                (bh - iy * 2).coerceAtLeast(1),
-            )
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = FrameLayout.LayoutParams(-1, -1)
+            setPadding(0, dp(48), 0, dp(12))
+        }
+        val iv = ImageView(this).apply {
+            setImageBitmap(band)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            layoutParams = LinearLayout.LayoutParams(-1, 0, 1f)
+        }
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(-1, dp(56))
+        }
+        fun button(text: String, color: Int, onClick: () -> Unit) = TextView(this).apply {
+            this.text = text
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            gravity = Gravity.CENTER
+            setBackgroundColor(color)
+            layoutParams = LinearLayout.LayoutParams(0, -1, 1f)
+            setOnClickListener { onClick() }
+        }
+        bar.addView(button("重拍", Color.parseColor("#5A6663")) {
+            rootView.removeView(box)
+            previewView.visibility = View.VISIBLE
+            overlay.visibility = View.VISIBLE
+            status.text = "框里只放一行：一个格子写一个数"
+        })
+        bar.addView(button("识别", Color.parseColor("#0E7263")) {
+            status.text = "识别中…"
+            io.execute { recognize(band) }
+        })
+        box.addView(iv)
+        box.addView(bar)
+        rootView.addView(box)
+    }
+
+    private fun recognize(band: Bitmap) {
+        val file = File(cacheDir, "band_${System.nanoTime()}.jpg")
+        runCatching {
+            file.outputStream().use { band.compress(Bitmap.CompressFormat.JPEG, 92, it) }
         }
 
-        val results = runBlocking {
-            withContext(Dispatchers.IO) {
-                cells.map { cell ->
-                    async {
-                        runCatching {
-                            val f = File(cacheDir, "cell_${System.nanoTime()}.jpg")
-                            f.outputStream().use { cell.compress(Bitmap.CompressFormat.JPEG, 92, it) }
-                            cell.recycle()
-                            val text = RemoteOcr.readText(this@OcrCameraActivity, android.net.Uri.fromFile(f))
-                            f.delete()
-                            // 一格只该有一个数：取解析出来的第一个
-                            DigitOcr.parse(text).firstOrNull() ?: Double.NaN
-                        }.getOrDefault(Double.NaN)
-                    }
-                }.awaitAll()
+        val nums = runCatching {
+            val text = RemoteOcr.readText(this, android.net.Uri.fromFile(file))
+            DigitOcr.parse(text)
+        }.getOrDefault(emptyList())
+        file.delete()
+
+        if (nums.isEmpty()) {
+            runOnUiThread {
+                status.text = "没认出数字，重拍一张（框里只留一行）"
             }
+            return
         }
 
-        val data = Intent().putExtra(EXTRA_NUMS, results.toDoubleArray())
-        setResult(Activity.RESULT_OK, data)
-        finish()
+        val data = Intent().putExtra(EXTRA_NUMS, DoubleArray(6) { i -> nums.getOrNull(i) ?: Double.NaN })
+        runOnUiThread {
+            setResult(Activity.RESULT_OK, data)
+            finish()
+        }
     }
 
     override fun onDestroy() {
