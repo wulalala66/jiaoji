@@ -16,9 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
-import android.net.Uri
+import android.content.Intent
 import android.widget.Toast
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material.icons.filled.Share
@@ -66,35 +64,18 @@ fun DensityScreen() {
     var m5 by remember { mutableStateOf("") }
     var m6 by remember { mutableStateOf("") }
     var clearLog by remember { mutableStateOf(false) }
-    var cameraUri by remember { mutableStateOf<Uri?>(null) }
-    var reading by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    val takePhoto = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        val u = cameraUri
-        if (!ok || u == null) return@rememberLauncherForActivityResult
-        reading = true
-        scope.launch {
-            val nums = runCatching { DigitOcr.parse(RemoteOcr.readText(ctx, u)) }.getOrNull()
-            reading = false
-            if (nums.isNullOrEmpty()) {
-                Toast.makeText(ctx, "没认出数字，重拍一张或者手动输", Toast.LENGTH_SHORT).show()
-            } else {
-                val v = nums + List(6 - nums.size) { null }
-                m1 = v.getOrNull(0)?.let { fmt2(it) } ?: ""
-                m2 = v.getOrNull(1)?.let { fmt2(it) } ?: ""
-                m3 = v.getOrNull(2)?.let { fmt2(it) } ?: ""
-                m4 = v.getOrNull(3)?.let { fmt2(it) } ?: ""
-                m5 = v.getOrNull(4)?.let { fmt2(it) } ?: ""
-                m6 = v.getOrNull(5)?.let { fmt2(it) } ?: ""
-                Toast.makeText(ctx, "识别到 ${nums.size} 个数，核对一下再保存", Toast.LENGTH_SHORT).show()
-            }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (res.resultCode != android.app.Activity.RESULT_OK) return@rememberLauncherForActivityResult
+        val nums = res.data?.getDoubleArrayExtra(OcrCameraActivity.EXTRA_NUMS)?.toList() ?: emptyList()
+        val got = nums.filter { !it.isNaN() }
+        if (got.isEmpty()) {
+            Toast.makeText(ctx, "没认出数字，重拍一张或者手动输", Toast.LENGTH_SHORT).show()
+            return@rememberLauncherForActivityResult
         }
+        fun at(i: Int) = got.getOrNull(i)?.let { fmt2(it) } ?: ""
+        m1 = at(0); m2 = at(1); m3 = at(2); m4 = at(3); m5 = at(4); m6 = at(5)
+        Toast.makeText(ctx, "识别到 ${got.size} 个数，核对一下再保存", Toast.LENGTH_SHORT).show()
     }
-
-    val dens = Density(parseD(m1), parseD(m2), parseD(m3), parseD(m4), parseD(m5), parseD(m6))
-    val r = DensityCalc.calc(dens.m1, dens.m2, dens.m3, dens.m4, dens.m5, dens.m6)
-    val hasSolid = dens.m5 > 0.0 && dens.m6 > 0.0
-    val canSave = r.specific != null
 
     fun fillFrom(rec: DensityRecord) {
         m1 = fmt2(rec.m1); m2 = fmt2(rec.m2); m3 = fmt2(rec.m3)
@@ -106,14 +87,8 @@ fun DensityScreen() {
             Text("比重计算器", style = MaterialTheme.typography.titleLarge, color = Ink)
             Spacer(Modifier.weight(1f))
             TextButton(
-                onClick = {
-                    if (reading) return@TextButton
-                    val dir = java.io.File(ctx.cacheDir, "exports").apply { mkdirs() }
-                    val f = java.io.File(dir, "ocr_" + System.currentTimeMillis() + ".jpg")
-                    cameraUri = androidx.core.content.FileProvider.getUriForFile(ctx, ctx.packageName + ".files", f)
-                    takePhoto.launch(cameraUri!!)
-                },
-            ) { Text(if (reading) "识别中…" else "📷 拍照识别", color = Brand, fontSize = 13.sp) }
+                onClick = { pick.launch(Intent(ctx, OcrCameraActivity::class.java)) },
+            ) { Text("📷 拍照识别", color = Brand, fontSize = 13.sp) }
             IconAction(Icons.Filled.Share, Ink2, "分享结果") {
                 Share.text(
                     ctx, "比重计算结果",
