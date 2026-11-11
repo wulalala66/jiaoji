@@ -4,7 +4,7 @@
 
 - **安卓版**：Kotlin + Jetpack Compose，安装包约 1 MB，Android 7.0+，包名 `com.gluelab.jiaoji`
 - **网页版**：PWA，同一套数据格式，手机浏览器打开就能用，可加到桌面
-- **完全离线**：不联网、无账号、无埋点
+- **完全离线**：不联网、无账号、无埋点（拍照识别也是本机跑，图片不出设备）
 
 **下载安装**：[最新 Release](https://github.com/wulalala66/jiaoji/releases/latest) → 下载 `jiaoji-vX.Y.Z.apk`，手机点开安装即可（首次会提示「未知来源」，允许一次即可）。
 
@@ -23,6 +23,9 @@
 - 样例核对：2.9 / 1.82 / 4.42 / 2.26 / 4.38 / 2.26 → 比重 1.4074、固体成分 97.368%、发泡率 −3.704%。
 - **记录每次测试**：点「保存这次结果」会把当时的六个称量值和三个结果一起存下来，
   历史按时间倒序排在下面，点一条就能把称量值填回上面重算。最多留 200 条，可单条删除或清空。
+- **拍照识别**：点标题栏「📷 拍照识别」，拍一张手写记录，自动把 4 或 6 个数填进 M1~M6。
+  本地用 ML Kit 识别（离线、不上传），结果只做「尽力而为」——手写涂改、小数点很淡的地方会错，
+  填完会提示「识别到 N 个数，核对一下」，确认或修改后再保存。
 - 支持「清空」和「分享结果」（微信/邮件直接发出去）。
 
 ### 📋 产品条件表
@@ -71,7 +74,9 @@
 
 ## 技术与构建
 
-- **App**：Kotlin + Jetpack Compose（Material 3），R8 压缩，单 dex；无 Room、无第三方 SDK、无 WebView。
+- **App**：Kotlin + Jetpack Compose（Material 3），R8 压缩；无 Room、无 WebView。
+  唯一的第三方依赖是 **ML Kit Text Recognition**（bundled 版，模型打进 APK，离线、不依赖 GMS，约 +4MB），
+  只用于比重页的手写数字识别。
 - **网页**：原生 ES Module + 一个 `app.css`，Vite 只做打包。没有前端框架、没有运行时依赖。
 - 构建与发布全部在 GitHub Actions：push 到 main 即
   1. `web`：Vite 构建 → 打包 → ed25519 固定密钥签名 → 部署 GitHub Pages；
@@ -94,7 +99,8 @@ android/app/src/main/java/com/gluelab/jiaoji/
   Models.kt            数据模型 + JSON 编解码（与网页版同构）+ 默认条件表 + 比重公式
   Repo.kt              全局状态（StateFlow）+ 全部写操作 + 备份导入导出
   Root.kt              导航 + 底部栏（比重 / 条件表 / 设置）
-  ScreenDensity.kt     比重计算器 + 历史记录
+  ScreenDensity.kt     比重计算器 + 历史记录 + 拍照识别入口
+  DigitOcr.kt          手写数字识别（ML Kit）+ 数字清洗/排序
   ScreenProducts.kt    产品条件表 + 烘烤倒计时 + 编辑弹层
   ScreenSettings.kt    设置（数据 / 关于）
   TimerAlert.kt        到点提醒（振动 + 通知）
