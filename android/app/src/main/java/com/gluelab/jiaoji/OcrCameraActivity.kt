@@ -154,23 +154,61 @@ class OcrCameraActivity : ComponentActivity() {
         return out
     }
 
-    /** 裁出 3:1 的中间带，再切成 6 格，逐格送识别 */
-    private fun recognize(src: Bitmap) {
-        val bandAspect = 3f
-        var bw = src.width
-        var bh = (bw / bandAspect).toInt()
-        if (bh > src.height) {
-            bh = src.height
-            bw = (bh * bandAspect).toInt()
-        }
-        val left = (src.width - bw) / 2
-        val top = (src.height - bh) / 2
-        val band = Bitmap.createBitmap(src, left, top, bw, bh)
+    /**
+     * 把「预览里看到的框」换算到「拍到的图」的像素坐标。
+     *
+     * 预览是 FILL_CENTER：图像会按视图宽高比居中裁一块再铺满，
+     * 所以可见区域是图像中心的一个 rect，框的相对位置要落在这个 rect 里。
+     */
+    private fun cropBand(src: Bitmap): Bitmap {
+        val vw = previewView.width.coerceAtLeast(1).toFloat()
+        val vh = previewView.height.coerceAtLeast(1).toFloat()
+        val viewAspect = vw / vh
+        val imgAspect = src.width.toFloat() / src.height
 
-        val cellW = bw / 6
-        val cells = (0 until 6).map { i ->
-            Bitmap.createBitmap(band, i * cellW, 0, cellW, bh)
+        val visW: Int
+        val visH: Int
+        val visX: Int
+        val visY: Int
+        if (imgAspect > viewAspect) {
+            // 图更宽：横向居中裁
+            visW = (src.height * viewAspect).toInt().coerceAtMost(src.width)
+            visH = src.height
+            visX = (src.width - visW) / 2
+            visY = 0
+        } else {
+            visH = (src.width / viewAspect).toInt().coerceAtMost(src.height)
+            visW = src.width
+            visX = 0
+            visY = (src.height - visH) / 2
         }
+
+        // 框在可见区域里的像素位置
+        var left = visX + (bandFrac.left * visW)
+        var top = visY + (bandFrac.top * visH)
+        var width = (bandFrac.width() * visW)
+        var height = (bandFrac.height() * visH)
+
+        // 数值兜底：算飞了就退回中间 3:1 带
+        if (width < 50 || height < 30 || left < 0 || top < 0 ||
+            left + width > src.width || top + height > src.height
+        ) {
+            width = src.width * 0.84f
+            height = width / 3f
+            if (height > src.height * 0.6f) height = src.height * 0.6f
+            left = (src.width - width) / 2f
+            top = (src.height - height) / 2f
+        }
+        return Bitmap.createBitmap(
+            src, left.toInt(), top.toInt(),
+            width.toInt().coerceAtLeast(1), height.toInt().coerceAtLeast(1),
+        )
+    }
+
+    private fun recognize(src: Bitmap) {
+        val band = cropBand(src)
+        val bw = band.width
+        val bh = band.height
 
         val results = runBlocking {
             withContext(Dispatchers.IO) {
@@ -201,6 +239,9 @@ class OcrCameraActivity : ComponentActivity() {
     }
 
     /** 取景框：框外压暗，框内画六格和 M1~M6 */
+    /** 取景框在预览视图里的相对位置（0~1），用于把「看到的框」换算到「拍到的图」 */
+    private val bandFrac = RectF(0.08f, 0.35f, 0.92f, 0.65f)
+
     private inner class FrameOverlay : View(this@OcrCameraActivity) {
         private val scrim = Paint().apply { color = Color.argb(140, 0, 0, 0) }
         private val frame = Paint().apply {
@@ -235,6 +276,8 @@ class OcrCameraActivity : ComponentActivity() {
             val r = l + bw
             val b = t + bh
             val rect = RectF(l, t, r, b)
+
+            bandFrac.set(l / w, t / h, r / w, b / h)
 
             canvas.drawRect(0f, 0f, w, t, scrim)
             canvas.drawRect(0f, b, w, h, scrim)
