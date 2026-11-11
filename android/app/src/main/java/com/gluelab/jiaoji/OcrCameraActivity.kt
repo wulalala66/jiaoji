@@ -73,7 +73,7 @@ class OcrCameraActivity : ComponentActivity() {
             setTextColor(Color.WHITE)
             textSize = 14f
             gravity = Gravity.CENTER
-            text = "把 6 个数写在框里，一个格子一个"
+            text = "框里只放一行：一个格子写一个数"
             setPadding(24, 18, 24, 18)
             setBackgroundColor(Color.argb(150, 0, 0, 0))
             layoutParams = FrameLayout.LayoutParams(-1, -2).apply { gravity = Gravity.TOP }
@@ -190,7 +190,7 @@ class OcrCameraActivity : ComponentActivity() {
             left + width > src.width || top + height > src.height
         ) {
             width = src.width * 0.84f
-            height = width / 3f
+            height = width / 5f
             if (height > src.height * 0.6f) height = src.height * 0.6f
             left = (src.width - width) / 2f
             top = (src.height - height) / 2f
@@ -205,6 +205,21 @@ class OcrCameraActivity : ComponentActivity() {
         val band = cropBand(src)
         val bw = band.width
         val bh = band.height
+
+        // 一格一块。左右各内缩 8%（防止邻居的字蹭进来），
+        // 上下各内缩 14%（格子里常写着别的数，只留中间那一行）。
+        val cellW = bw / 6
+        val cells = (0 until 6).map { i ->
+            val ix = (cellW * 0.08f).toInt()
+            val iy = (bh * 0.14f).toInt()
+            Bitmap.createBitmap(
+                band,
+                i * cellW + ix,
+                iy,
+                (cellW - ix * 2).coerceAtLeast(1),
+                (bh - iy * 2).coerceAtLeast(1),
+            )
+        }
 
         val results = runBlocking {
             withContext(Dispatchers.IO) {
@@ -262,13 +277,14 @@ class OcrCameraActivity : ComponentActivity() {
             val w = width.toFloat()
             val h = height.toFloat()
             var bw = w - dp(32)
-            var bh = bw / 3f
+            var bh = bw / 5f
             if (bh > h * 0.5f) {
                 bh = h * 0.5f
-                bw = bh * 3f
+                bw = bh * 5f
             }
             val l = (w - bw) / 2
-            val t = (h - bh) / 2
+            // 往上挪：下面留出快门和手指的空间，数字也更好对准
+            val t = h * 0.38f - bh / 2
             val r = l + bw
             val b = t + bh
             val rect = RectF(l, t, r, b)
@@ -285,7 +301,7 @@ class OcrCameraActivity : ComponentActivity() {
             for (i in 0 until 6) {
                 val x = l + i * cw
                 if (i > 0) canvas.drawLine(x, t, x, b, grid)
-                canvas.drawText("M${i + 1}", x + dp(6), t + dp(16), label)
+                canvas.drawText("M${i + 1}", x + dp(6), t - dp(8), label)
             }
         }
     }
