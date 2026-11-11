@@ -258,15 +258,17 @@ class OcrCameraActivity : ComponentActivity() {
             file.outputStream().use { band.compress(Bitmap.CompressFormat.JPEG, 92, it) }
         }
 
+        var raw = ""
         val nums = runCatching {
-            val text = RemoteOcr.readText(this, android.net.Uri.fromFile(file))
-            DigitOcr.parse(text)
+            raw = RemoteOcr.readText(this, android.net.Uri.fromFile(file))
+            DigitOcr.parse(raw)
         }.getOrDefault(emptyList())
         file.delete()
 
         if (nums.isEmpty()) {
+            val reason = if (raw.isBlank()) "接口返回空" else "原文：$raw"
             runOnUiThread {
-                status.text = "没认出数字，重拍一张（框里只留一行）"
+                status.text = "没认出数字（$reason）"
             }
             return
         }
