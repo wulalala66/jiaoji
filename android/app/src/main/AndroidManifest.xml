@@ -4,10 +4,6 @@
     <!-- 现在完全离线：没有任何联网功能 -->
     <!-- 烘烤到点振动提醒；通知权限在 Android 13+ 首次计时时申请 -->
     <uses-permission android:name="android.permission.VIBRATE" />
-    <!-- 只有「在线识别」这一个功能用得到；本地识别完全离线 -->
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!--
       调系统时钟的 SET_TIMER / SET_ALARM 需要它。
@@ -61,12 +57,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
-        <activity
-            android:name=".OcrCameraActivity"
-            android:exported="false"
-            android:screenOrientation="portrait"
-            android:theme="@style/Theme.JiaoJi" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

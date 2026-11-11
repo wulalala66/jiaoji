@@ -43,6 +43,15 @@ import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 
 private fun parseD(s: String): Double = s.trim().replace("，", ".").replace(",", ".").toDoubleOrNull() ?: 0.0
 private fun fmt2(v: Double): String = String.format(Locale.US, "%.2f", v)
@@ -64,17 +73,29 @@ fun DensityScreen() {
     var m5 by remember { mutableStateOf("") }
     var m6 by remember { mutableStateOf("") }
     var clearLog by remember { mutableStateOf(false) }
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
-        if (res.resultCode != android.app.Activity.RESULT_OK) return@rememberLauncherForActivityResult
-        val nums = res.data?.getDoubleArrayExtra(OcrCameraActivity.EXTRA_NUMS)?.toList() ?: emptyList()
-        val got = nums.filter { !it.isNaN() }
-        if (got.isEmpty()) {
-            Toast.makeText(ctx, "没认出数字，重拍一张或者手动输", Toast.LENGTH_SHORT).show()
-            return@rememberLauncherForActivityResult
+    // 六个格子依次输入：只输数字，自动排小数点，输满三个自动跳下一格
+    val focus = remember { List(6) { FocusRequester() } }
+    val kb = LocalSoftwareKeyboardController.current
+
+    fun digitsOf(v: String) = v.filter { it.isDigit() }.take(3)
+    fun formatted(d: String) = when {
+        d.isEmpty() -> ""
+        d.length == 1 -> d
+        else -> d[0].toString() + "." + d.substring(1)
+    }
+
+    fun setAt(i: Int, raw: String) {
+        val d = digitsOf(raw)
+        val v = formatted(d)
+        when (i) {
+            0 -> m1 = v; 1 -> m2 = v; 2 -> m3 = v
+            3 -> m4 = v; 4 -> m5 = v; 5 -> m6 = v
         }
-        fun at(i: Int) = got.getOrNull(i)?.let { fmt2(it) } ?: ""
-        m1 = at(0); m2 = at(1); m3 = at(2); m4 = at(3); m5 = at(4); m6 = at(5)
-        Toast.makeText(ctx, "识别到 ${got.size} 个数，核对一下再保存", Toast.LENGTH_SHORT).show()
+        if (d.length >= 3 && i < 5) focus[i + 1].requestFocus()
+    }
+
+    fun goNext(i: Int) {
+        if (i < 5) focus[i + 1].requestFocus() else kb?.hide()
     }
 
     val dens = Density(parseD(m1), parseD(m2), parseD(m3), parseD(m4), parseD(m5), parseD(m6))
@@ -87,13 +108,12 @@ fun DensityScreen() {
         m4 = fmt2(rec.m4); m5 = if (rec.m5 > 0) fmt2(rec.m5) else ""; m6 = if (rec.m6 > 0) fmt2(rec.m6) else ""
     }
 
+    LaunchedEffect(Unit) { runCatching { focus[0].requestFocus() } }
+
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
             Text("比重计算器", style = MaterialTheme.typography.titleLarge, color = Ink)
             Spacer(Modifier.weight(1f))
-            TextButton(
-                onClick = { pick.launch(Intent(ctx, OcrCameraActivity::class.java)) },
-            ) { Text("📷 拍照识别", color = Brand, fontSize = 13.sp) }
             IconAction(Icons.Filled.Share, Ink2, "分享结果") {
                 Share.text(
                     ctx, "比重计算结果",
@@ -115,19 +135,25 @@ fun DensityScreen() {
                     Text("称量值", style = MaterialTheme.typography.labelMedium, color = Ink3)
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NumField(m1, { m1 = it }, "M1", Modifier.weight(1f))
-                        NumField(m2, { m2 = it }, "M2", Modifier.weight(1f))
+                        QuickNum(m1, { setAt(0, it) }, "M1", Modifier.weight(1f), focus[0], 1, { goNext(0) })
+                        QuickNum(m2, { setAt(1, it) }, "M2", Modifier.weight(1f), focus[1], 2, { goNext(1) })
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NumField(m3, { m3 = it }, "M3", Modifier.weight(1f))
-                        NumField(m4, { m4 = it }, "M4", Modifier.weight(1f))
+                        QuickNum(m3, { setAt(2, it) }, "M3", Modifier.weight(1f), focus[2], 3, { goNext(2) })
+                        QuickNum(m4, { setAt(3, it) }, "M4", Modifier.weight(1f), focus[3], 4, { goNext(3) })
                     }
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        NumField(m5, { m5 = it }, "M5", Modifier.weight(1f), placeholder = "可空")
-                        NumField(m6, { m6 = it }, "M6", Modifier.weight(1f), placeholder = "可空")
+                        QuickNum(m5, { setAt(4, it) }, "M5 可空", Modifier.weight(1f), focus[4], 5, { goNext(4) })
+                        QuickNum(m6, { setAt(5, it) }, "M6 可空", Modifier.weight(1f), focus[5], 6, { goNext(5) })
                     }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "直接敲数字就行：输 3 2 1 就是 3.21，满三位自动跳到下一格；只有两位按回车也能跳。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Ink3,
+                    )
                     Spacer(Modifier.height(8.dp))
                     Text(
                         "d1=M3−M1  d2=M4−M2  d3=M5−M1  d4=M6−M2\n" +
@@ -300,4 +326,37 @@ private fun ResultBox(label: String, value: String, modifier: Modifier = Modifie
             maxLines = 1,
         )
     }
+}
+
+/**
+ * 只收数字的输入框：敲 3 2 1 显示 3.21，满三位自动跳下一格。
+ * 不用自己打小数点，也不用点屏幕切焦点。
+ */
+@Composable
+private fun QuickNum(
+    value: String,
+    onChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    requester: FocusRequester,
+    order: Int,
+    onDone: () -> Unit,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onChange,
+        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+        singleLine = true,
+        modifier = modifier.focusRequester(requester),
+        textStyle = MaterialTheme.typography.bodyLarge,
+        colors = fieldColors(),
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Number,
+            imeAction = if (order < 6) ImeAction.Next else ImeAction.Done,
+        ),
+        keyboardActions = KeyboardActions(
+            onNext = { onDone() },
+            onDone = { onDone() },
+        ),
+    )
 }
