@@ -83,24 +83,40 @@ export function renderDensity(root) {
     saveBtn.textContent = r.specific === null ? "填够 M1~M4 才能保存" : "保存这次结果";
   };
 
-  const field = (key, label, placeholder) =>
-    el(
-      "label",
-      { class: "field" },
-      el("span", { class: "field-label" }, label),
-      el("input", {
-        class: "input num",
-        type: "text",
-        inputmode: "decimal",
-        autocomplete: "off",
-        placeholder: placeholder || "",
-        value: values[key],
-        oninput: (e) => {
-          values[key] = e.target.value;
-          fillResult();
-        },
-      })
-    );
+  const inputs = [];
+
+  /** 只收数字：敲 3 2 1 显示 3.21，满三位自动跳下一格（网页没有键盘「下一项」） */
+  const fmtDigits = (raw) => {
+    const d = String(raw).replace(/\D/g, "").slice(0, 3);
+    if (!d) return "";
+    return d.length === 1 ? d : d[0] + "." + d.slice(1);
+  };
+
+  const field = (key, label, placeholder, index) => {
+    const input = el("input", {
+      class: "input num",
+      type: "text",
+      inputmode: "numeric",
+      autocomplete: "off",
+      placeholder: placeholder || "",
+      value: values[key],
+      oninput: (e) => {
+        const v = fmtDigits(e.target.value);
+        values[key] = v;
+        if (e.target.value !== v) e.target.value = v;
+        fillResult();
+        if (v.length >= 4 && index < 5) inputs[index + 1]?.focus();
+      },
+      onkeydown: (e) => {
+        if (e.key === "Enter" && index < 5) {
+          e.preventDefault();
+          inputs[index + 1]?.focus();
+        }
+      },
+    });
+    inputs[index] = input;
+    return el("label", { class: "field" }, el("span", { class: "field-label" }, label), input);
+  };
 
   const share = async () => {
     const { v, r } = current();
@@ -204,13 +220,13 @@ export function renderDensity(root) {
       "section",
       { class: "card" },
       el("div", { class: "card-title" }, "称量值"),
-      el("div", { class: "grid-2" }, field("m1", "M1", "烘前"), field("m2", "M2", "烘前")),
-      el("div", { class: "grid-2" }, field("m3", "M3", "烘后"), field("m4", "M4", "烘后")),
-      el("div", { class: "grid-2" }, field("m5", "M5", "固份，可空"), field("m6", "M6", "固份，可空")),
+      el("div", { class: "grid-2" }, field("m1", "M1", "烘前", 0), field("m2", "M2", "烘前", 1)),
+      el("div", { class: "grid-2" }, field("m3", "M3", "烘后", 2), field("m4", "M4", "烘后", 3)),
+      el("div", { class: "grid-2" }, field("m5", "M5", "固份，可空", 4), field("m6", "M6", "固份，可空", 5)),
       el(
         "p",
         { class: "hint" },
-        "d1=M3−M1　d2=M4−M2　d3=M5−M1　d4=M6−M2",
+        "直接敲数字：输 3 2 1 就是 3.21，小数点不用自己打。",
         el("br"),
         "比重 = d1/(d1−d2)；固体成分 = d3/d1×100；发泡率 = ((d3−d4)/(d1−d2)−1)×100"
       )
