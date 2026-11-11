@@ -45,7 +45,9 @@ import java.util.Date
 import java.util.Locale
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusRequester
@@ -341,9 +343,26 @@ private fun QuickNum(
     order: Int,
     onDone: () -> Unit,
 ) {
+    // 必须用 TextFieldValue 并显式给光标位置：
+    // 只改 String 的话，Compose 会按旧偏移保留光标 ——
+    // 我们插了个小数点，光标就落在点的前面，下一个数字会被插进去（654 → 6.45）。
+    var tv by remember(value) {
+        mutableStateOf(TextFieldValue(value, TextRange(value.length)))
+    }
+
     OutlinedTextField(
-        value = value,
-        onValueChange = onChange,
+        value = tv,
+        onValueChange = { nv ->
+            val d = nv.text.filter { it.isDigit() }.take(3)
+            val v = when {
+                d.isEmpty() -> ""
+                d.length == 1 -> d
+                else -> d[0].toString() + "." + d.substring(1)
+            }
+            // 光标永远放到末尾
+            tv = TextFieldValue(v, TextRange(v.length))
+            onChange(v)
+        },
         label = { Text(label, style = MaterialTheme.typography.labelSmall) },
         singleLine = true,
         modifier = modifier.focusRequester(requester),
