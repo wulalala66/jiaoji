@@ -116,6 +116,10 @@ class OcrCameraActivity : ComponentActivity() {
                     .build()
                 provider.unbindAll()
                 provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, capture)
+                // 让拍出来的图按「预览可见区域」裁一次：
+                // 不然 ImageCapture 输出的是传感器全尺寸（更宽），
+                // 和用户在框里看到的画面比例对不上，六格就会错位。
+                runCatching { capture?.setViewPort(previewView.viewPort) }
             }.onFailure { status.text = "相机打不开：${it.message}" }
         }, ContextCompat.getMainExecutor(this))
     }
