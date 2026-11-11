@@ -97,8 +97,6 @@ dependencies {
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // 手写数字识别：bundled 版模型打在 APK 里，离线可用、不依赖 GMS
-    implementation("com.google.mlkit:text-recognition:16.0.1")
 
     // 本地没有真机/模拟器，用 Robolectric 在 JVM 上真实组合每一屏做冒烟测试
     testImplementation("junit:junit:4.13.2")
