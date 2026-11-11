@@ -77,6 +77,11 @@ fun DensityScreen() {
         Toast.makeText(ctx, "识别到 ${got.size} 个数，核对一下再保存", Toast.LENGTH_SHORT).show()
     }
 
+    val dens = Density(parseD(m1), parseD(m2), parseD(m3), parseD(m4), parseD(m5), parseD(m6))
+    val r = DensityCalc.calc(dens.m1, dens.m2, dens.m3, dens.m4, dens.m5, dens.m6)
+    val hasSolid = dens.m5 > 0.0 && dens.m6 > 0.0
+    val canSave = r.specific != null
+
     fun fillFrom(rec: DensityRecord) {
         m1 = fmt2(rec.m1); m2 = fmt2(rec.m2); m3 = fmt2(rec.m3)
         m4 = fmt2(rec.m4); m5 = if (rec.m5 > 0) fmt2(rec.m5) else ""; m6 = if (rec.m6 > 0) fmt2(rec.m6) else ""
