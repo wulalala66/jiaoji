@@ -13,6 +13,9 @@ android {
 
     defaultConfig {
         applicationId = "com.gluelab.jiaoji"
+        // ML Kit 的原生库按 ABI 各打一份，x86/x86_64 占了一半体积。
+        // 真机只有 arm64 / armeabi-v7a，砍掉模拟器用的两个架构。
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         minSdk = 24
         targetSdk = 34
         versionCode = appVerCode

@@ -31,9 +31,16 @@ object DigitOcr {
         ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
         var sample = 1
         while (bounds.outWidth / sample > 2000 || bounds.outHeight / sample > 2000) sample *= 2
-        return ctx.contentResolver.openInputStream(uri)?.use {
+        val full = ctx.contentResolver.openInputStream(uri)?.use {
             BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
-        }
+        } ?: return null
+        // 只取画面中间那条横带：用户被要求把数字写满取景框，
+        // 上下边缘一般是桌面、纸张边、手 —— 这些噪声对识别的影响比手写本身大。
+        val bandTop = (full.height * 0.28f).toInt().coerceIn(0, full.height - 1)
+        val bandH = (full.height * 0.44f).toInt().coerceIn(1, full.height - bandTop)
+        val cropped = Bitmap.createBitmap(full, 0, bandTop, full.width, bandH)
+        if (cropped !== full) full.recycle()
+        return cropped
     }
 
     private suspend fun recognize(bitmap: Bitmap): String = suspendCancellableCoroutine { cont ->
