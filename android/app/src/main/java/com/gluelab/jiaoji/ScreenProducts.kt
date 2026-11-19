@@ -80,6 +80,7 @@ fun ProductsScreen(state: AppState) {
     var creating by remember { mutableStateOf(false) }
     var choosing by remember { mutableStateOf<Product?>(null) }
     var confirmStop by remember { mutableStateOf(false) }
+    var fridge by remember { mutableStateOf(false) }
     val ctx = LocalContext.current
     val listState = rememberLazyListState()
     val density = LocalDensity.current
@@ -107,6 +108,7 @@ fun ProductsScreen(state: AppState) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
             Text("产品条件表", style = MaterialTheme.typography.titleLarge, color = Ink)
             Spacer(Modifier.weight(1f))
+            TextButton(onClick = { fridge = true }) { Text("🧊", fontSize = 18.sp) }
             IconAction(Icons.Filled.Add, Brand, "新增产品") { creating = true }
         }
 
@@ -220,6 +222,65 @@ fun ProductsScreen(state: AppState) {
             },
             confirmButton = {},
             dismissButton = { TextButton(onClick = { choosing = null }) { Text("取消", color = Ink2) } },
+        )
+    }
+
+    if (fridge) {
+        AlertDialog(
+            onDismissRequest = { fridge = false },
+            title = { Text("冰箱降温 · 定时", style = MaterialTheme.typography.titleMedium) },
+            text = {
+                Column {
+                    Text(
+                        "点一个分钟数就交给系统时钟，到点会响；放冰箱前按一下，别忘。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Ink3,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    (0 until 4).forEach { row ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(bottom = 6.dp),
+                        ) {
+                            (1..5).forEach { col ->
+                                val m = row * 5 + col
+                                Surface(
+                                    onClick = {
+                                        fridge = false
+                                        val label = "冰箱降温 $m 分钟"
+                                        val via = SystemTimer.start(ctx, m, label)
+                                        if (via != null) {
+                                            Toast0(ctx, "已交给系统时钟：$m 分钟")
+                                        } else {
+                                            Repo.I.startTimer("冰箱降温", 0, m)
+                                            Toast0(ctx, "这台手机没有可调用的时钟，改用应用内计时")
+                                        }
+                                    },
+                                    color = if (m % 5 == 0) BrandSoft else SoftBg,
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f).height(46.dp),
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            "$m",
+                                            fontSize = 16.sp,
+                                            color = if (m % 5 == 0) BrandDark else Ink,
+                                            fontWeight = FontWeight.Medium,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Text(
+                        "常用的是 5 / 10 / 15 / 20 分钟，所以这几个标了色。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Ink3,
+                    )
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { fridge = false }) { Text("取消", color = Ink2) } },
         )
     }
 
