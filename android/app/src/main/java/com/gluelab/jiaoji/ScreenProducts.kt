@@ -256,7 +256,7 @@ fun ProductsScreen(state: AppState) {
                                             Toast0(ctx, "这台手机没有可调用的时钟，改用应用内计时")
                                         }
                                     },
-                                    color = if (m % 5 == 0) BrandSoft else SoftBg,
+                                    color = SoftBg,
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.weight(1f).height(46.dp),
                                 ) {
@@ -264,7 +264,7 @@ fun ProductsScreen(state: AppState) {
                                         Text(
                                             "$m",
                                             fontSize = 16.sp,
-                                            color = if (m % 5 == 0) BrandDark else Ink,
+                                            color = Ink,
                                             fontWeight = FontWeight.Medium,
                                         )
                                     }
@@ -272,11 +272,6 @@ fun ProductsScreen(state: AppState) {
                             }
                         }
                     }
-                    Text(
-                        "常用的是 5 / 10 / 15 / 20 分钟，所以这几个标了色。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Ink3,
-                    )
                 }
             },
             confirmButton = {},
