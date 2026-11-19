@@ -39,8 +39,8 @@ sealed interface Screen {
 @Composable
 fun Root() {
     val state by Repo.I.state.collectAsState()
-    // 打开 App 先看比重计算器：这是每天用得最多的一屏
-    var screen by remember { mutableStateOf<Screen>(Screen.Density) }
+    // 打开 App 先看条件表：每天进实验室第一件事就是查有没有自己的产品
+    var screen by remember { mutableStateOf<Screen>(Screen.Products) }
 
     Scaffold(
         containerColor = Bg,
@@ -63,8 +63,8 @@ private fun BottomBar(current: Screen, onSelect: (Screen) -> Unit) {
             Modifier.fillMaxWidth().navigationBarsPadding().height(60.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            TabItem("⚖️", "比重", current is Screen.Density) { onSelect(Screen.Density) }
             TabItem("📋", "条件表", current is Screen.Products) { onSelect(Screen.Products) }
+            TabItem("⚖️", "比重", current is Screen.Density) { onSelect(Screen.Density) }
             TabItem("⚙️", "设置", current is Screen.Settings) { onSelect(Screen.Settings) }
         }
     }

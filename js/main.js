@@ -16,8 +16,8 @@ let cleanup = null;
 let currentRoute = "";
 
 const TABS = [
-  { hash: "#/density", icon: "⚖️", label: "比重", match: ["density"] },
   { hash: "#/products", icon: "📋", label: "条件表", match: ["products"] },
+  { hash: "#/density", icon: "⚖️", label: "比重", match: ["density"] },
   { hash: "#/settings", icon: "⚙️", label: "设置", match: ["settings"] },
 ];
 
@@ -33,13 +33,13 @@ function parse() {
   const raw = location.hash.replace(/^#\/?/, "");
   const parts = raw.split("/").filter(Boolean);
   // 打开就是比重计算器：每天用得最多的一屏
-  if (!parts.length) return { name: "density", args: [] };
+  if (!parts.length) return { name: "products", args: [] };
   return { name: parts[0], args: parts.slice(1) };
 }
 
 function render() {
   const route = parse();
-  currentRoute = location.hash || "#/density";
+  currentRoute = location.hash || "#/products";
 
   if (typeof cleanup === "function") {
     cleanup();
@@ -68,7 +68,7 @@ function render() {
     console.error(e);
     root.appendChild(el("div", { class: "fatal" }, "这一页出错了：" + (e.message || e)));
     root.appendChild(
-      el("button", { class: "btn btn-ghost", type: "button", onclick: () => navigate("#/density") }, "回比重页")
+      el("button", { class: "btn btn-ghost", type: "button", onclick: () => navigate("#/products") }, "回条件表")
     );
   }
 
@@ -106,7 +106,7 @@ function boot() {
   if (note) toast(note, "warn", 4200);
 
   window.addEventListener("hashchange", render);
-  if (!location.hash) location.replace("#/density");
+  if (!location.hash) location.replace("#/products");
   render();
 
   // 注册 service worker（只在 https / localhost 下有效）
