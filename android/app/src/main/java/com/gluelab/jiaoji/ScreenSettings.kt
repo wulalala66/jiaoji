@@ -22,12 +22,31 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.Toast
 
 /** 设置：数据备份 + 关于。功能都下线了，这一页只留必须的几件事。 */
 @Composable
 fun SettingsScreen(state: AppState) {
     val ctx = LocalContext.current
     var confirmClear by remember { mutableStateOf(false) }
+
+    // 用系统文件选择器，不需要任何存储权限
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val raw = runCatching {
+            ctx.contentResolver.openInputStream(uri)?.use { it.bufferedReader().readText() }
+        }.getOrNull()
+        when {
+            raw.isNullOrBlank() ->
+                toast(ctx, "读不出这个文件，换个文件试试")
+            Repo.I.importJson(raw) ->
+                toast(ctx, "导入成功：条件表、比重记录都换过来了")
+            else ->
+                toast(ctx, "这不是胶记的备份文件")
+        }
+    }
 
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, modifier = Modifier.padding(vertical = 4.dp)) {
@@ -47,10 +66,15 @@ fun SettingsScreen(state: AppState) {
                     Share.json(ctx, "胶记备份.json", Repo.I.exportJson())
                 }
                 Spacer(Modifier.height(8.dp))
+                PrimaryButton("导入备份（选文件）") {
+                    // 各家文件管理器给 .json 报的 MIME 不一样，索性放开
+                    pick.launch(arrayOf("application/json", "application/octet-stream", "text/plain", "*/*"))
+                }
+                Spacer(Modifier.height(8.dp))
                 PrimaryButton("清空所有数据", enabled = true) { confirmClear = true }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "导入备份：把 .json 文件发到微信「文件传输助手」，点开后选「用其他应用打开 → 胶记」。",
+                    "导入会覆盖当前的条件表和比重记录。也可以把 .json 发到微信，点开后选「用其他应用打开 → 胶记」。",
                     style = MaterialTheme.typography.bodySmall,
                     color = Ink3,
                 )
@@ -107,4 +131,8 @@ fun SettingsScreen(state: AppState) {
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("取消", color = Ink2) } },
         )
     }
+}
+
+private fun toast(ctx: android.content.Context, msg: String) {
+    Toast.makeText(ctx, msg, Toast.LENGTH_LONG).show()
 }
